@@ -348,6 +348,7 @@ function showToast(message, duration = 3000) {
 
 async function loadUserBills() {
   try {
+    showLoading(true);
     const userId = currentUser.uid;
     const userBillsRef = collection(db, `users/${userId}/grabfood_bills`);
     const q = query(userBillsRef, orderBy("datetime", "desc"));
@@ -358,13 +359,22 @@ async function loadUserBills() {
     
     snapshot.forEach(doc => {
       const data = doc.data();
+      console.log('📄 Bill data:', data); // ADD THIS
+      
       if (data.datetime) {
         const bill = {
           id: doc.id,
           ...data
         };
         bills.push(bill);
-        monthSet.add(bill.month);
+        
+        // Check if month field exists
+        if (data.month) {
+          console.log('📅 Adding month:', data.month); // ADD THIS
+          monthSet.add(data.month);
+        } else {
+          console.warn('⚠️ Bill missing month field:', data); // ADD THIS
+        }
       }
     });
     
@@ -372,14 +382,19 @@ async function loadUserBills() {
     allBillsCount = bills.length;
     months = Array.from(monthSet).sort().reverse();
     
+    console.log('📊 All months found:', months); // ADD THIS
+    console.log('📊 Total unique months:', months.length); // ADD THIS
+    
     populateMonths();
     updateStats(0);
     
     console.log(`✅ Loaded ${bills.length} bills for user`);
     
   } catch (error) {
-    console.error("Error loading bills:", error);
-    showToast('✗ Failed to load bills');
+    console.error("❌ Error loading bills:", error);
+    showToast('✗ Failed to load bills: ' + error.message);
+  } finally {
+    showLoading(false);
   }
 }
 
