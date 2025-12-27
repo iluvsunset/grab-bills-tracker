@@ -491,68 +491,6 @@ function extractBillData(body, emailDate, threadId) {
   }
 }
 
-function extractBillData(body, emailDate, threadId) {
-  try {
-    const cleanBody = body
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"');
-
-    const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
-                        cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
-    
-    let storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+(?:[A-ZĐÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ][a-zđáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ]+\s+)*Giao đến/);
-    
-    if (!storeMatch) {
-      storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+Hồ sơ/);
-    }
-    
-    const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
-    let foodMatches = null;
-    
-    if (itemsSection) {
-      foodMatches = itemsSection[1].match(/\d+x\s+([^\d₫V]+?)(?=\s+\d+(?:₫|VND)|\s+\d+x|$)/g);
-      if (foodMatches) {
-        foodMatches = foodMatches.map(item => item.trim().replace(/\s+/g, ' '));
-      }
-    }
-
-    const totalAmount = amountMatch ? (amountMatch[0].includes('₫') ? '₫ ' : 'VND ') + amountMatch[1] : null;
-    const storeName = storeMatch ? storeMatch[1].trim() : null;
-    const foodItems = foodMatches ? foodMatches.join(", ") : null;
-    const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
-    
-    const yyyy = emailDate.getFullYear();
-    const mm = String(emailDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(emailDate.getDate()).padStart(2, '0');
-    const hh = String(emailDate.getHours()).padStart(2, '0');
-    const min = String(emailDate.getMinutes()).padStart(2, '0');
-    const formattedDate = `${yyyy}-${mm}-${dd} | ${hh}:${min}`;
-    const date = `${yyyy}-${mm}-${dd}`;
-    const month = `${yyyy}-${mm}`;
-
-    if (formattedDate && totalAmount && storeName && foodItems) {
-      return {
-        datetime: formattedDate,
-        date: date,
-        month: month,
-        store: storeName,
-        items: foodItems,
-        total: totalAmount,
-        link: emailLink,
-        valid: true
-      };
-    }
-
-    return { valid: false };
-  } catch (error) {
-    console.error('Error extracting bill data:', error);
-    return { valid: false };
-  }
-}
-
 async function saveBillsToFirestore(bills) {
   const userId = currentUser.uid;
   console.log(`💾 Saving ${bills.length} bills to Firestore...`);
