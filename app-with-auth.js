@@ -637,14 +637,25 @@ function extractBillData(body, emailDate, threadId) {
     }
     
     const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
-    let foodMatches = null;
-    
-    if (itemsSection) {
-      foodMatches = itemsSection[1].match(/\d+x\s+([^\d₫V]+?)(?=\s+\d+(?:₫|VND)|\s+\d+x|$)/g);
-      if (foodMatches) {
-        foodMatches = foodMatches.map(item => item.trim().replace(/\s+/g, ' '));
-      }
-    }
+let foodMatches = null;
+
+if (itemsSection) {
+  const itemsText = itemsSection[1];
+  
+  // Improved regex: Capture lines starting with "number x"
+  // Handles: "1x Item Name 99000₫" or "1x 1 item name 99000₫"
+  foodMatches = itemsText.match(/(\d+x\s+.+?)(?=\s+\d+(?:₫|VND))/g);
+  
+  if (foodMatches) {
+    foodMatches = foodMatches.map(item => {
+      // Clean up: remove extra whitespace and numbers after "x"
+      return item
+        .replace(/\d+x\s+\d+\s+/, match => match.replace(/\d+\s+$/, '')) // Remove number after "1x "
+        .trim()
+        .replace(/\s+/g, ' ');
+    });
+  }
+}
 
     const totalAmount = amountMatch ? (amountMatch[0].includes('₫') ? '₫ ' : 'VND ') + amountMatch[1] : null;
     const storeName = storeMatch ? storeMatch[1].trim() : null;
