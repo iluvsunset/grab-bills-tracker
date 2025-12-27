@@ -569,6 +569,7 @@ box-shadow: 0 4px 20px rgba(0, 255, 255, 0.5);
 }
 
 .spinner::before {
+  display:none;
   content: '';
   position: absolute;
   top: 5px;
