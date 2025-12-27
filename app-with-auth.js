@@ -332,29 +332,52 @@ async function syncGmailBills(token) {
     showLoading(true);
     showToast('🔄 Syncing Gmail receipts...');
     
-    const response = await fetch(
-      'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Your Grab E-Receipt"&maxResults=50',
-      {
-        headers: { 'Authorization': `Bearer ${token}` }
+    // ============================================
+    // FETCH ALL EMAILS WITH PAGINATION
+    // ============================================
+    let allMessages = [];
+    let pageToken = null;
+    let pageCount = 0;
+    
+    do {
+      pageCount++;
+      console.log(`📧 Fetching page ${pageCount}...`);
+      
+      let url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Your Grab E-Receipt"&maxResults=100';
+      if (pageToken) {
+        url += `&pageToken=${pageToken}`;
       }
-    );
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Gmail API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const messages = data.messages || [];
+      allMessages = allMessages.concat(messages);
+      
+      pageToken = data.nextPageToken;
+      
+      showToast(`Found ${allMessages.length} receipts so far...`);
+      
+    } while (pageToken); // Continue until no more pages
     
-    if (!response.ok) {
-      throw new Error(`Gmail API error: ${response.status}`);
-    }
+    console.log(`✅ Total found: ${allMessages.length} GrabFood emails`);
+    showToast(`Found ${allMessages.length} receipts. Processing...`);
     
-    const data = await response.json();
-    const messages = data.messages || [];
-    
-    console.log(`📧 Found ${messages.length} GrabFood emails`);
-    showToast(`Found ${messages.length} receipts. Processing...`);
-    
+    // ============================================
+    // PROCESS ALL MESSAGES
+    // ============================================
     const bills = [];
     
-    for (let i = 0; i < messages.length; i++) {
+    for (let i = 0; i < allMessages.length; i++) {
       try {
         const msgResponse = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messages[i].id}?format=full`,
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${allMessages[i].id}?format=full`,
           {
             headers: { 'Authorization': `Bearer ${token}` }
           }
@@ -369,18 +392,20 @@ async function syncGmailBills(token) {
         
         if (billData.valid) {
           bills.push(billData);
+        } else {
+          console.log(`⚠️ Skipped email ${i + 1} - extraction failed`);
         }
         
         if ((i + 1) % 10 === 0) {
-          showToast(`Processed ${i + 1}/${messages.length}...`);
+          showToast(`Processed ${i + 1}/${allMessages.length}...`);
         }
         
       } catch (error) {
-        console.error('Error processing message:', error);
+        console.error(`Error processing message ${i + 1}:`, error);
       }
     }
     
-    console.log(`✅ Successfully extracted ${bills.length} bills`);
+    console.log(`✅ Successfully extracted ${bills.length} bills from ${allMessages.length} emails`);
     await saveBillsToFirestore(bills);
     showToast(`✓ Synced ${bills.length} bills!`);
     await loadUserBills();
@@ -393,25 +418,77 @@ async function syncGmailBills(token) {
   }
 }
 
-function extractEmailBody(payload) {
-  if (payload.body && payload.body.data) {
-    return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-  }
-  
-  if (payload.parts) {
-    let part = payload.parts.find(p => p.mimeType === 'text/html');
-    if (part && part.body && part.body.data) {
-      const html = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+function extractBillData(body, emailDate, threadId) {
+  try {
+    const cleanBody = body
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"');
+
+    // DEBUG: Log first 500 chars
+    console.log('📧 Email preview:', cleanBody.substring(0, 500));
+
+    const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
+                        cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
+    
+    let storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+(?:[A-ZĐÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ][a-zđáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ]+\s+)*Giao đến/);
+    
+    if (!storeMatch) {
+      storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+Hồ sơ/);
     }
     
-    part = payload.parts.find(p => p.mimeType === 'text/plain');
-    if (part && part.body && part.body.data) {
-      return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+    const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
+    let foodMatches = null;
+    
+    if (itemsSection) {
+      foodMatches = itemsSection[1].match(/\d+x\s+([^\d₫V]+?)(?=\s+\d+(?:₫|VND)|\s+\d+x|$)/g);
+      if (foodMatches) {
+        foodMatches = foodMatches.map(item => item.trim().replace(/\s+/g, ' '));
+      }
     }
+
+    const totalAmount = amountMatch ? (amountMatch[0].includes('₫') ? '₫ ' : 'VND ') + amountMatch[1] : null;
+    const storeName = storeMatch ? storeMatch[1].trim() : null;
+    const foodItems = foodMatches ? foodMatches.join(", ") : null;
+    
+    // DEBUG: Show what was extracted
+    console.log('💰 Amount:', totalAmount);
+    console.log('🏪 Store:', storeName);
+    console.log('🍔 Items:', foodItems);
+
+    const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+    
+    const yyyy = emailDate.getFullYear();
+    const mm = String(emailDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(emailDate.getDate()).padStart(2, '0');
+    const hh = String(emailDate.getHours()).padStart(2, '0');
+    const min = String(emailDate.getMinutes()).padStart(2, '0');
+    const formattedDate = `${yyyy}-${mm}-${dd} | ${hh}:${min}`;
+    const date = `${yyyy}-${mm}-${dd}`;
+    const month = `${yyyy}-${mm}`;
+
+    // More lenient validation - save if we have at least date and amount OR store
+    if (formattedDate && (totalAmount || storeName)) {
+      return {
+        datetime: formattedDate,
+        date: date,
+        month: month,
+        store: storeName || 'Unknown Store',
+        items: foodItems || 'Items not found',
+        total: totalAmount || 'Amount not found',
+        link: emailLink,
+        valid: true
+      };
+    }
+
+    console.log('❌ Validation failed - missing critical data');
+    return { valid: false };
+  } catch (error) {
+    console.error('Error extracting bill data:', error);
+    return { valid: false };
   }
-  
-  return '';
 }
 
 function extractBillData(body, emailDate, threadId) {
