@@ -1908,8 +1908,22 @@ function initEventListeners() {
   document.getElementById('googleSignInBtn').addEventListener('click', handleGoogleSignIn);
   document.getElementById('signOutBtn').addEventListener('click', handleSignOut);
   
-  // Month selector
-  document.getElementById('monthSelector').addEventListener('click', toggleDropdown);
+  // Month Timeline Scroll
+  const timeline = document.getElementById('monthTimeline');
+  const scrollLeftBtn = document.getElementById('scrollLeftBtn');
+  const scrollRightBtn = document.getElementById('scrollRightBtn');
+
+  if (scrollLeftBtn && timeline) {
+    scrollLeftBtn.addEventListener('click', () => {
+      timeline.scrollBy({ left: -200, behavior: 'smooth' });
+    });
+  }
+  
+  if (scrollRightBtn && timeline) {
+    scrollRightBtn.addEventListener('click', () => {
+      timeline.scrollBy({ left: 200, behavior: 'smooth' });
+    });
+  }
   
   // Search
   document.getElementById('searchInput').addEventListener('input', filterBills);
@@ -1942,14 +1956,6 @@ function initEventListeners() {
       currentAnalyticsPeriod = btn.dataset.period;
       loadAnalytics();
     });
-  });
-  
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('monthDropdown');
-    if (dropdown && !dropdown.contains(e.target)) {
-      dropdown.classList.remove('open');
-    }
   });
   
   // Close modals when clicking outside
