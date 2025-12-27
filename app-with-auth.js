@@ -341,11 +341,21 @@ async function saveBudget(amount) {
 // GMAIL SYNC FUNCTIONS
 // ============================================
 function extractEmailBody(payload) {
-  // Helper to decode base64
+  // Helper to decode base64 with UTF-8 support
   function decodeBase64(data) {
     if (!data) return '';
     try {
-      return atob(data.replace(/-/g, '+').replace(/_/g, '/'));
+      const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(base64);
+      
+      // Convert binary string to UTF-8
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      
+      // Decode as UTF-8
+      return new TextDecoder('utf-8').decode(bytes);
     } catch (e) {
       console.error('Base64 decode error:', e);
       return '';
@@ -598,73 +608,84 @@ async function syncGmailBills(token) {
 }
 
 // Extract bill data from email content
-function extractEmailBody(payload) {
-  // Helper to decode base64 with UTF-8 support
-  function decodeBase64(data) {
-    if (!data) return '';
-    try {
-      const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
-      const binary = atob(base64);
-      
-      // Convert binary string to UTF-8
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      
-      // Decode as UTF-8
-      return new TextDecoder('utf-8').decode(bytes);
-    } catch (e) {
-      console.error('Base64 decode error:', e);
-      return '';
-    }
-  }
-  
-  // Check if payload has direct parts (multipart/alternative, etc.)
-  if (payload.parts && payload.parts.length > 0) {
-    console.log(`📧 Found ${payload.parts.length} top-level parts`);
+function extractBillData(body, emailDate, threadId) {
+  try {
+    // IMPROVED: Strip <style> tags and their content first, then clean HTML
+    let cleanBody = body
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // REMOVE <style> blocks
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // REMOVE <script> blocks
+      .replace(/<[^>]*>/g, ' ') // Remove remaining HTML tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+
+    // DEBUG: Log first 1000 chars AFTER cleaning
+    console.log('📧 Email preview:', cleanBody.substring(0, 1000));
+
+    // ... rest of your extraction code stays the same
+    const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
+                        cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
     
-    // Try text/plain first (often cleaner than HTML)
-    const plainPart = payload.parts.find(p => p.mimeType === 'text/plain');
-    if (plainPart && plainPart.body && plainPart.body.data) {
-      console.log('✅ Using text/plain part');
-      return decodeBase64(plainPart.body.data);
+    let storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+(?:[A-ZĐÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ][a-zđáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ]+\s+)*Giao đến/);
+    
+    if (!storeMatch) {
+      storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+Hồ sơ/);
     }
     
-    // Try text/html
-    const htmlPart = payload.parts.find(p => p.mimeType === 'text/html');
-    if (htmlPart && htmlPart.body && htmlPart.body.data) {
-      console.log('✅ Using text/html part');
-      const html = decodeBase64(htmlPart.body.data);
-      // Strip HTML tags
-      return html
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
+    const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
+    let foodMatches = null;
     
-    // Recursively search nested parts
-    for (const part of payload.parts) {
-      if (part.parts && part.parts.length > 0) {
-        console.log(`🔍 Searching nested parts in ${part.mimeType}`);
-        const result = extractEmailBody(part); // Recursive
-        if (result && result.length > 100) {
-          return result;
-        }
+    if (itemsSection) {
+      foodMatches = itemsSection[1].match(/\d+x\s+([^\d₫V]+?)(?=\s+\d+(?:₫|VND)|\s+\d+x|$)/g);
+      if (foodMatches) {
+        foodMatches = foodMatches.map(item => item.trim().replace(/\s+/g, ' '));
       }
     }
+
+    const totalAmount = amountMatch ? (amountMatch[0].includes('₫') ? '₫ ' : 'VND ') + amountMatch[1] : null;
+    const storeName = storeMatch ? storeMatch[1].trim() : null;
+    const foodItems = foodMatches ? foodMatches.join(", ") : null;
+    
+    // DEBUG: Show what was extracted
+    console.log('💰 Amount:', totalAmount);
+    console.log('🏪 Store:', storeName);
+    console.log('🍔 Items:', foodItems);
+
+    const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+    
+    const yyyy = emailDate.getFullYear();
+    const mm = String(emailDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(emailDate.getDate()).padStart(2, '0');
+    const hh = String(emailDate.getHours()).padStart(2, '0');
+    const min = String(emailDate.getMinutes()).padStart(2, '0');
+    const formattedDate = `${yyyy}-${mm}-${dd} | ${hh}:${min}`;
+    const date = `${yyyy}-${mm}-${dd}`;
+    const month = `${yyyy}-${mm}`;
+
+    // More lenient validation - save if we have at least date and amount OR store
+    if (formattedDate && (totalAmount || storeName)) {
+      return {
+        datetime: formattedDate,
+        date: date,
+        month: month,
+        store: storeName || 'Unknown Store',
+        items: foodItems || 'Items not found',
+        total: totalAmount || 'Amount not found',
+        link: emailLink,
+        valid: true
+      };
+    }
+
+    console.log('❌ Validation failed - missing critical data');
+    return { valid: false };
+  } catch (error) {
+    console.error('Error extracting bill data:', error);
+    return { valid: false };
   }
-  
-  // Fallback: check direct body
-  if (payload.body && payload.body.data) {
-    console.log('✅ Using direct body data');
-    return decodeBase64(payload.body.data);
-  }
-  
-  console.log('❌ No content found in payload');
-  return '';
 }
 
 async function saveBillsToFirestore(bills) {
