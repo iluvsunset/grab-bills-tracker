@@ -89,6 +89,7 @@
           class="search-input"
           placeholder="🔍 Search by store, date, or items..."
         >
+        <button id="aiPickBtn" class="ai-btn">🔮 AI Pick</button>
         <button id="filterBtn" class="filter-btn">🎛️ Filters</button>
         <button id="exportBtn" class="export-btn">📥 Export</button>
       </div>
@@ -194,8 +195,16 @@
       <!-- Spending Heatmap -->
       <div class="heatmap-section">
         <h3>🔥 Spending Intensity (This Year)</h3>
-        <div class="heatmap-container">
-          <div class="heatmap-scroll" id="spendingHeatmap"></div>
+        <div class="heatmap-wrapper">
+          <div class="heatmap-days">
+            <span>Mon</span>
+            <span>Wed</span>
+            <span>Fri</span>
+          </div>
+          <div class="heatmap-content">
+            <div class="heatmap-months" id="heatmapMonths"></div>
+            <div class="heatmap-scroll" id="spendingHeatmap"></div>
+          </div>
         </div>
         <div class="heatmap-legend">
           <span>Less</span>
@@ -366,6 +375,23 @@
     <div class="modal-actions">
       <button id="saveListBtn" class="primary-btn">Create</button>
       <button class="modal-close" id="closeListModal">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="predictorModal">
+  <div class="modal-content">
+    <h2 style="text-align: center; color: #7b2ff7;">🔮 AI Cravings Predictor</h2>
+    <div class="predictor-content">
+      <div class="predictor-scanner">
+        <div class="scanner-beam"></div>
+      </div>
+      <p id="predictorStatus" style="color: #00ffff; letter-spacing: 1px;">INITIALIZING SCAN...</p>
+      <div class="predictor-result" id="predictorResult"></div>
+      <div class="prediction-details" id="predictionDetails"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-close" id="closePredictorModal" style="width: 100%; border-color: #7b2ff7; color: #fff;">Close Protocol</button>
     </div>
   </div>
 </div>

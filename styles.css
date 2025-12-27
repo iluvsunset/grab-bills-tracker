@@ -761,8 +761,137 @@ box-shadow: 0 4px 20px rgba(0, 255, 255, 0.5);
 }
 
 /* ============================================
-   RESPONSIVE DESIGN OPTIMIZATIONS
+   HOLO-CARDS (3D Interactive UI)
    ============================================ */
+.bill-entry {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(0, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  transform-style: preserve-3d;
+  transform: perspective(1000px);
+  transition: transform 0.1s ease, box-shadow 0.3s ease;
+  margin-bottom: 15px;
+  position: relative;
+  overflow: visible; /* Allow glow to spill out */
+}
+
+.bill-entry::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 12px;
+  background: linear-gradient(120deg, transparent 30%, rgba(0, 255, 255, 0.1) 50%, transparent 70%);
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.bill-entry:hover::after {
+  opacity: 1;
+  animation: shine 1.5s infinite linear;
+}
+
+.bill-entry:hover {
+  border-color: rgba(0, 255, 255, 0.5);
+  box-shadow: 
+    0 10px 30px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(0, 255, 255, 0.1);
+  z-index: 10;
+}
+
+@keyframes shine {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ============================================
+   AI PREDICTOR (New Feature)
+   ============================================ */
+.ai-btn {
+  background: linear-gradient(135deg, #7b2ff7, #2f5df7);
+  color: white;
+  border: none;
+  box-shadow: 0 0 15px rgba(123, 47, 247, 0.4);
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+}
+
+.ai-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 0 25px rgba(123, 47, 247, 0.6);
+}
+
+/* Predictor Modal Content */
+.predictor-content {
+  text-align: center;
+  padding: 20px;
+}
+
+.predictor-scanner {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 20px;
+  position: relative;
+  border-radius: 50%;
+  border: 2px solid rgba(123, 47, 247, 0.3);
+  box-shadow: 0 0 20px rgba(123, 47, 247, 0.2);
+}
+
+.scanner-beam {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 2px;
+  background: #7b2ff7;
+  box-shadow: 0 0 10px #7b2ff7;
+  animation: scanBeam 1s infinite alternate;
+}
+
+@keyframes scanBeam {
+  0% { top: 10%; width: 80%; opacity: 0.5; }
+  100% { top: 90%; width: 80%; opacity: 1; }
+}
+
+.predictor-result {
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 0 15px #7b2ff7;
+  margin: 20px 0;
+  min-height: 40px;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.predictor-result.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.prediction-details {
+  font-size: 14px;
+  color: #aaa;
+  background: rgba(255,255,255,0.05);
+  padding: 15px;
+  border-radius: 8px;
+  border-left: 3px solid #7b2ff7;
+  text-align: left;
+  margin-top: 20px;
+  display: none; /* Hidden until result is ready */
+  animation: fadeIn 0.5s ease;
+}
+
+/* Responsive Design */
 
 /* Tablet & Smaller Laptops (max-width: 1024px) */
 @media screen and (max-width: 1024px) {
@@ -1467,19 +1596,50 @@ box-shadow: 0 4px 20px rgba(0, 255, 255, 0.5);
   font-size: 18px;
 }
 
-.heatmap-container {
+.heatmap-wrapper {
+  display: flex;
+  gap: 8px;
+}
+
+.heatmap-days {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-top: 25px; /* Align with cells (skip month row) */
+  padding-bottom: 5px; /* Align with bottom */
+  font-size: 10px;
+  color: #666;
+  height: 116px; /* 7 cells * (12px + 4px gap) approx */
+}
+
+.heatmap-content {
+  flex: 1;
   overflow-x: auto;
-  padding-bottom: 10px;
   scrollbar-width: thin;
   scrollbar-color: #00ffff rgba(0, 0, 0, 0.3);
 }
 
+.heatmap-months {
+  display: flex;
+  margin-bottom: 5px;
+  font-size: 10px;
+  color: #888;
+  position: relative;
+  height: 15px;
+}
+
+.month-label {
+  position: absolute;
+  top: 0;
+}
+
 .heatmap-scroll {
   display: grid;
-  grid-template-rows: repeat(7, 12px); /* 7 days of week */
+  grid-template-rows: repeat(7, 12px); /* 7 days */
   grid-auto-flow: column;
   gap: 4px;
   width: max-content;
+  padding-bottom: 5px;
 }
 
 .day-cell {
@@ -1489,7 +1649,6 @@ box-shadow: 0 4px 20px rgba(0, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.05);
   cursor: pointer;
   transition: all 0.2s ease;
-  position: relative;
 }
 
 .day-cell:hover {

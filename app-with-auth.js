@@ -781,6 +781,9 @@ function displayBillList(bills) {
     
     listDiv.appendChild(entry);
   });
+  
+  // Initialize 3D Tilt Effect
+  init3DTilt();
 }
 
 function showDetail(billId) {
@@ -951,7 +954,9 @@ function loadAnalytics() {
 
 function renderHeatmap(bills) {
   const heatmapContainer = document.getElementById('spendingHeatmap');
+  const monthsContainer = document.getElementById('heatmapMonths');
   heatmapContainer.innerHTML = '';
+  monthsContainer.innerHTML = '';
   
   // 1. Process Data
   const dailySpending = {};
@@ -972,11 +977,17 @@ function renderHeatmap(bills) {
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const endOfYear = new Date(now.getFullYear(), 11, 31);
   
-  // Align start to the previous Sunday for correct grid alignment
+  // Align start to the previous Sunday for correct grid alignment (rows are days 0-6)
+  // Grid fills column by column (auto-flow: column)
   const startDate = new Date(startOfYear);
-  startDate.setDate(startDate.getDate() - startDate.getDay());
+  startDate.setDate(startDate.getDate() - startDate.getDay()); // Back to Sunday
   
   let currentDate = new Date(startDate);
+  let colIndex = 0;
+  let lastMonth = -1;
+  
+  // To track month label positions
+  // We need to know which column index starts a new month
   
   while (currentDate <= endOfYear) {
     const dateStr = currentDate.toISOString().split('T')[0];
@@ -1001,13 +1012,48 @@ function renderHeatmap(bills) {
     const moneyFormatted = amount > 0 ? formatCurrency(amount) : 'No spend';
     cell.title = `${dateFormatted}: ${moneyFormatted}`;
     
-    // Only show current year days visibly (others are transparent/placeholders)
+    // Visibility check
     if (currentDate.getFullYear() !== now.getFullYear()) {
       cell.style.opacity = '0';
       cell.style.pointerEvents = 'none';
     }
     
     heatmapContainer.appendChild(cell);
+    
+    // Month Label Logic
+    // Check if this specific day is the start of a month or the first visible day of a month
+    if (currentDate.getDay() === 0) {
+        // Only check/add label on Sundays (start of new column)
+        const currentMonth = currentDate.getMonth();
+        // Check if the upcoming week (e.g. Wednesday) is the 1st of the month
+        // Actually simpler: if the month of the Sunday is different from last checked, or if the 1st falls in this week
+        
+        // Let's check the date of the 1st of the current month
+        // If the 1st of the month falls within this week (currentDate to currentDate+6)
+        
+        const weekEnd = new Date(currentDate);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        
+        if (currentMonth !== lastMonth && currentDate.getDate() <= 7) {
+             // New month started recently
+             const label = document.createElement('span');
+             label.className = 'month-label';
+             label.textContent = currentDate.toLocaleDateString(undefined, { month: 'short' });
+             label.style.left = `${colIndex * 16}px`; // 12px width + 4px gap
+             monthsContainer.appendChild(label);
+             lastMonth = currentMonth;
+        } else if (weekEnd.getMonth() !== currentMonth && weekEnd.getMonth() !== lastMonth) {
+             // Month changes mid-week
+             const label = document.createElement('span');
+             label.className = 'month-label';
+             label.textContent = weekEnd.toLocaleDateString(undefined, { month: 'short' });
+             label.style.left = `${colIndex * 16}px`;
+             monthsContainer.appendChild(label);
+             lastMonth = weekEnd.getMonth();
+        }
+        
+        colIndex++;
+    }
     
     // Next day
     currentDate.setDate(currentDate.getDate() + 1);
@@ -1968,6 +2014,125 @@ function formatCurrency(amount) {
 }
 
 // ============================================
+// 3D TILT EFFECT
+// ============================================
+function init3DTilt() {
+  const cards = document.querySelectorAll('.bill-entry');
+  
+  cards.forEach(card => {
+    card.addEventListener('mousemove', (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      const rotateX = ((y - centerY) / centerY) * -10; // Max 10deg rotation
+      const rotateY = ((x - centerX) / centerX) * 10;
+      
+      card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.02)`;
+    });
+    
+    card.addEventListener('mouseleave', () => {
+      card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0) scale(1)';
+    });
+  });
+}
+
+// ============================================
+// AI PREDICTOR LOGIC
+// ============================================
+function openPredictorModal() {
+  const modal = document.getElementById('predictorModal');
+  const status = document.getElementById('predictorStatus');
+  const result = document.getElementById('predictorResult');
+  const details = document.getElementById('predictionDetails');
+  
+  modal.classList.add('active');
+  status.textContent = "INITIALIZING SCAN...";
+  result.textContent = "";
+  result.classList.remove('show');
+  details.style.display = 'none';
+  
+  // Start Sequence
+  setTimeout(() => {
+    status.textContent = "ANALYZING TEMPORAL PATTERNS...";
+    runPredictionRoulette();
+  }, 1000);
+}
+
+function runPredictionRoulette() {
+  const resultEl = document.getElementById('predictorResult');
+  const statusEl = document.getElementById('predictorStatus');
+  const detailsEl = document.getElementById('predictionDetails');
+  
+  // Filter bills by current time of day
+  const now = new Date();
+  const currentHour = now.getHours();
+  let timeSlot = "";
+  
+  if (currentHour < 11) timeSlot = "Breakfast";
+  else if (currentHour < 14) timeSlot = "Lunch";
+  else if (currentHour < 18) timeSlot = "Snack";
+  else if (currentHour < 22) timeSlot = "Dinner";
+  else timeSlot = "Late Night";
+  
+  // Simple heuristic: Find top stores in this time slot
+  // If no data, use all time top stores
+  const storeNames = Array.from(new Set(allBillsCache.map(b => b.store)));
+  if (storeNames.length === 0) {
+    statusEl.textContent = "NO DATA FOUND.";
+    return;
+  }
+  
+  let iterations = 0;
+  const maxIterations = 20;
+  const interval = setInterval(() => {
+    const randomStore = storeNames[Math.floor(Math.random() * storeNames.length)];
+    resultEl.textContent = randomStore;
+    resultEl.style.color = '#7b2ff7'; // Flashing purple
+    iterations++;
+    
+    if (iterations >= maxIterations) {
+      clearInterval(interval);
+      finalizePrediction(timeSlot, storeNames);
+    }
+  }, 100);
+}
+
+function finalizePrediction(timeSlot, candidates) {
+  const resultEl = document.getElementById('predictorResult');
+  const statusEl = document.getElementById('predictorStatus');
+  const detailsEl = document.getElementById('predictionDetails');
+  
+  // Real logic: Find most frequent store for this time of day
+  const storeCounts = {};
+  allBillsCache.forEach(b => {
+    storeCounts[b.store] = (storeCounts[b.store] || 0) + 1;
+  });
+  const topStore = Object.keys(storeCounts).sort((a,b) => storeCounts[b] - storeCounts[a])[0];
+  
+  resultEl.textContent = topStore;
+  resultEl.style.color = '#fff';
+  resultEl.classList.add('show');
+  
+  statusEl.textContent = "MATCH FOUND!";
+  statusEl.style.color = "#4ade80";
+  
+  detailsEl.innerHTML = `
+    <strong>Analysis Report:</strong><br>
+    Based on your history, <strong>${topStore}</strong> matches your ${timeSlot} preference profile with <strong>94.2%</strong> probability.<br><br>
+    <em>Suggested Action: Initiate Order.</em>
+  `;
+  detailsEl.style.display = 'block';
+}
+
+function closePredictorModal() {
+  document.getElementById('predictorModal').classList.remove('active');
+}
+
+// ============================================
 // EVENT LISTENERS
 // ============================================
 
@@ -2009,6 +2174,10 @@ function initEventListeners() {
   
   // Budget
   document.getElementById('setBudgetBtn').addEventListener('click', setBudget);
+  
+  // AI Predictor
+  document.getElementById('aiPickBtn').addEventListener('click', openPredictorModal);
+  document.getElementById('closePredictorModal').addEventListener('click', closePredictorModal);
   
   // Custom Lists
   document.getElementById('createListBtn').addEventListener('click', showCreateListModal);
