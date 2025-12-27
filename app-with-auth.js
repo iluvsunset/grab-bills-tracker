@@ -340,7 +340,6 @@ async function saveBudget(amount) {
 // ============================================
 // GMAIL SYNC FUNCTIONS
 // ============================================
-
 function extractEmailBody(payload) {
   // Helper to recursively extract from any part
   function extractFromPart(part) {
@@ -354,8 +353,8 @@ function extractEmailBody(payload) {
       // Try text/html first
       const htmlPart = part.parts.find(p => p.mimeType === 'text/html');
       if (htmlPart) {
-        const html = extractFromPart(htmlPart); // Recursive call
-        if (html) {
+        const html = extractFromPart(htmlPart);
+        if (html && html.length > 100) { // CHANGED: Lower threshold
           return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
         }
       }
@@ -363,21 +362,21 @@ function extractEmailBody(payload) {
       // Try text/plain
       const textPart = part.parts.find(p => p.mimeType === 'text/plain');
       if (textPart) {
-        const text = extractFromPart(textPart); // Recursive call
-        if (text) return text;
+        const text = extractFromPart(textPart);
+        if (text && text.length > 100) return text; // CHANGED: Lower threshold
       }
       
-      // Try multipart/* (like multipart/alternative, multipart/related)
+      // Try multipart/*
       const multipart = part.parts.find(p => p.mimeType && p.mimeType.startsWith('multipart/'));
       if (multipart) {
-        const result = extractFromPart(multipart); // Recursive call
-        if (result) return result;
+        const result = extractFromPart(multipart);
+        if (result && result.length > 100) return result; // CHANGED: Lower threshold
       }
       
-      // Last resort: try all parts recursively
+      // Last resort: try all parts
       for (const subPart of part.parts) {
         const result = extractFromPart(subPart);
-        if (result && result.length > 500) { // Only return if substantial content
+        if (result && result.length > 100) { // CHANGED: Lower threshold
           return result;
         }
       }
@@ -388,55 +387,6 @@ function extractEmailBody(payload) {
   
   const body = extractFromPart(payload);
   console.log(`📧 Extracted ${body.length} characters from email`);
-  
-  // Show first 500 chars for debugging
-  if (body.length > 0) {
-    console.log('📧 First 500 chars:', body.substring(0, 500));
-  }
-  
-  return body;
-}
-
-function extractFromPart(part) {
-    // Direct body data
-    if (part.body && part.body.data) {
-      return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-    }
-    
-    // Check parts array
-    if (part.parts) {
-      // Try to find HTML part first (usually has better formatting)
-      let htmlPart = part.parts.find(p => p.mimeType === 'text/html');
-      if (htmlPart && htmlPart.body && htmlPart.body.data) {
-        const html = atob(htmlPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-        // Strip HTML tags and normalize whitespace
-        return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-      }
-      
-      // Fallback to plain text
-      let textPart = part.parts.find(p => p.mimeType === 'text/plain');
-      if (textPart && textPart.body && textPart.body.data) {
-        return atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      }
-      
-      // Recursive search in nested parts
-      for (const subPart of part.parts) {
-        if (subPart.parts || subPart.body) {
-          const result = extractFromPart(subPart);
-          if (result && result.length > 100) { // Only return if we got substantial content
-            return result;
-          }
-        }
-      }
-    }
-    
-    return '';
-  }
-  
-  const body = extractFromPart(payload);
-  
-  // Debug: Log length to verify we got real content
-  console.log(`📧 Extracted body length: ${body.length} characters`);
   
   return body;
 }
@@ -627,16 +577,23 @@ async function syncGmailBills(token) {
 // Extract bill data from email content
 function extractBillData(body, emailDate, threadId) {
   try {
-    const cleanBody = body
+    // IMPROVED: Strip <style> tags and their content first, then clean HTML
+    let cleanBody = body
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // REMOVE <style> blocks
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // REMOVE <script> blocks
+      .replace(/<[^>]*>/g, ' ') // Remove remaining HTML tags
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"');
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
 
-    // DEBUG: Log first 500 chars
-    console.log('📧 Email preview:', cleanBody.substring(0, 500));
+    // DEBUG: Log first 1000 chars AFTER cleaning
+    console.log('📧 Email preview:', cleanBody.substring(0, 1000));
 
+    // ... rest of your extraction code stays the same
     const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
                         cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
     
