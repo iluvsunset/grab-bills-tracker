@@ -830,40 +830,42 @@ function loadFavoritesTab() {
         <div class="empty-state-subtext">Star your favorite stores from the bills list</div>
       </div>
     `;
-    return;
+  } else {
+    // Calculate stats for each favorite store
+    const favoriteStats = Array.from(favoriteStores).map(store => {
+      const storeBills = allBillsCache.filter(b => b.store === store);
+      const totalSpent = storeBills.reduce((sum, bill) => sum + parseAmount(bill.total), 0);
+      const avgOrder = totalSpent / storeBills.length;
+      
+      return {
+        name: store,
+        orders: storeBills.length,
+        totalSpent,
+        avgOrder,
+        lastOrder: storeBills[0]?.date || '-'
+      };
+    });
+    
+    favoriteStats.sort((a, b) => b.orders - a.orders);
+    
+    favoritesList.innerHTML = favoriteStats.map(store => `
+      <div class="favorite-card">
+        <div class="favorite-card-header">
+          <div class="favorite-name">${store.name}</div>
+          <div class="favorite-star" onclick="toggleFavorite('${store.name}')">⭐</div>
+        </div>
+        <div class="favorite-stats">
+          📦 ${store.orders} orders<br>
+          💰 Total: ${formatCurrency(store.totalSpent)}<br>
+          📊 Average: ${formatCurrency(store.avgOrder)}<br>
+          📅 Last order: ${store.lastOrder}
+        </div>
+      </div>
+    `).join('');
   }
   
-  // Calculate stats for each favorite store
-  const favoriteStats = Array.from(favoriteStores).map(store => {
-    const storeBills = allBillsCache.filter(b => b.store === store);
-    const totalSpent = storeBills.reduce((sum, bill) => sum + parseAmount(bill.total), 0);
-    const avgOrder = totalSpent / storeBills.length;
-    
-    return {
-      name: store,
-      orders: storeBills.length,
-      totalSpent,
-      avgOrder,
-      lastOrder: storeBills[0]?.date || '-'
-    };
-  });
-  
-  favoriteStats.sort((a, b) => b.orders - a.orders);
-  
-  favoritesList.innerHTML = favoriteStats.map(store => `
-    <div class="favorite-card">
-      <div class="favorite-card-header">
-        <div class="favorite-name">${store.name}</div>
-        <div class="favorite-star" onclick="toggleFavorite('${store.name}')">⭐</div>
-      </div>
-      <div class="favorite-stats">
-        📦 ${store.orders} orders<br>
-        💰 Total: ${formatCurrency(store.totalSpent)}<br>
-        📊 Average: ${formatCurrency(store.avgOrder)}<br>
-        📅 Last order: ${store.lastOrder}
-      </div>
-    </div>
-  `).join('');
+  // Always display custom lists
+  displayCustomLists();
 }
 
 // ============================================
