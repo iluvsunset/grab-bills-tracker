@@ -598,34 +598,55 @@ function showToast(message, type = 'info', duration = 3000) {
 // NAVIGATION
 // ============================================
 
+let isTransitioning = false;
+
 function initNavigation() {
   const tabs = document.querySelectorAll('.nav-tab');
-  const tabContents = document.querySelectorAll('.tab-content');
   
   tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const targetTab = tab.dataset.tab;
+    tab.addEventListener('click', async () => {
+      if (isTransitioning || tab.classList.contains('active')) return;
       
-      // Update active tab
-      tabs.forEach(t => t.classList.remove('active'));
+      const targetTabId = tab.dataset.tab;
+      const currentTabBtn = document.querySelector('.nav-tab.active');
+      const currentTabContent = document.querySelector('.tab-content.active');
+      const targetTabContent = document.getElementById(`${targetTabId}Tab`);
+      
+      isTransitioning = true;
+      
+      // 1. Update Buttons immediately
+      if (currentTabBtn) currentTabBtn.classList.remove('active');
       tab.classList.add('active');
       
-      // Update visible content
-      tabContents.forEach(content => content.classList.remove('active'));
-      document.getElementById(`${targetTab}Tab`).classList.add('active');
-      
-      // Load tab-specific content
-      switch(targetTab) {
-        case 'analytics':
-          loadAnalytics();
-          break;
-        case 'favorites':
-          loadFavoritesTab();
-          break;
-        case 'budget':
-          loadBudgetTab();
-          break;
+      // 2. Animate Exit
+      if (currentTabContent) {
+        currentTabContent.classList.add('closing');
+        
+        // Wait for exit animation
+        await new Promise(resolve => setTimeout(resolve, 400));
+        
+        currentTabContent.classList.remove('active', 'closing');
       }
+      
+      // 3. Animate Enter
+      if (targetTabContent) {
+        targetTabContent.classList.add('active');
+        
+        // Load content
+        switch(targetTabId) {
+          case 'analytics':
+            loadAnalytics();
+            break;
+          case 'favorites':
+            loadFavoritesTab();
+            break;
+          case 'budget':
+            loadBudgetTab();
+            break;
+        }
+      }
+      
+      isTransitioning = false;
     });
   });
 }
