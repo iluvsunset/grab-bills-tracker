@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GrabFood Bills Portal</title>
 <link rel="stylesheet" href="./styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="particles"></div>
@@ -26,83 +27,282 @@
   </div>
 </div>
 
-<!-- SYNC SCREEN -->
-<div id="syncScreen">
-  <div class="sync-container">
-    <div class="sync-spinner"></div>
-    <h2>Syncing Your Bills</h2>
-    <p>Extracting your GrabFood receipts from Gmail...</p>
-    <p style="margin-top: 8px; font-size: 13px; color: #999;">This may take a minute</p>
-  </div>
-</div>
-
 <!-- MAIN APP -->
 <div id="mainApp">
+  <!-- Header -->
   <div class="app-header">
-  <div class="user-info">
-    <span>👤</span>
-    <span id="userEmail">user@example.com</span>
+    <div class="user-info">
+      <span>👤</span>
+      <span id="userEmail">user@example.com</span>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button id="syncGmailBtn" class="sync-btn">🔄 Sync Gmail</button>
+      <button id="signOutBtn" class="sign-out-btn">Sign Out</button>
+    </div>
   </div>
-  <div style="display: flex; gap: 10px;">
-    <button id="syncGmailBtn" style="
-  background: linear-gradient(135deg, #00ffff 0%, #00cccc 100%);
-  color: #0a0e27;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 50px;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  transition: all 0.3s ease;
-">
-  🔄 Sync Gmail
-</button>
-    <button id="signOutBtn">Sign Out</button>
-  </div>
-</div>
   
-  <div class="content-wrapper">
-    <h1>🍔 GrabFood Bills Tracker</h1>
-    
-    <!-- Stats Bar -->
-    <div class="stats-bar" id="statsBar" style="display: none;">
-      <div class="stat-card">
-        <div class="stat-value" id="totalBills">0</div>
-        <div class="stat-label">Total Bills</div>
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="bills">📋 Bills</button>
+    <button class="nav-tab" data-tab="analytics">📊 Analytics</button>
+    <button class="nav-tab" data-tab="favorites">⭐ Favorites</button>
+    <button class="nav-tab" data-tab="budget">💰 Budget</button>
+  </div>
+
+  <!-- BILLS TAB -->
+  <div class="tab-content active" id="billsTab">
+    <div class="content-wrapper">
+      <h1>🍔 GrabFood Bills Tracker</h1>
+      
+      <!-- Stats Bar -->
+      <div class="stats-bar" id="statsBar" style="display: none;">
+        <div class="stat-card">
+          <div class="stat-value" id="totalBills">0</div>
+          <div class="stat-label">Total Bills</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="monthBills">0</div>
+          <div class="stat-label">This Month</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="monthSpending">₫0</div>
+          <div class="stat-label">Month Spending</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="avgOrder">₫0</div>
+          <div class="stat-label">Avg Order</div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value" id="monthBills">0</div>
-        <div class="stat-label">This Month</div>
+      
+      <!-- Month Dropdown -->
+      <div class="glass-dropdown" id="monthDropdown">
+        <div class="selected" id="monthSelector">
+          <span id="selectedMonth">📅 Select Month</span>
+          <span>▼</span>
+        </div>
+        <div class="options" id="monthOptions"></div>
+      </div>
+      
+      <!-- Search & Filter Bar -->
+      <div class="search-filter-bar" id="searchContainer">
+        <input 
+          type="text" 
+          id="searchInput"
+          class="search-input"
+          placeholder="🔍 Search by store, date, or items..."
+        >
+        <button id="filterBtn" class="filter-btn">🎛️ Filters</button>
+        <button id="exportBtn" class="export-btn">📥 Export</button>
+      </div>
+
+      <!-- Advanced Filters (Hidden by default) -->
+      <div class="filters-panel" id="filtersPanel" style="display: none;">
+        <h3>Advanced Filters</h3>
+        <div class="filter-grid">
+          <div class="filter-item">
+            <label>Price Range</label>
+            <div class="price-range">
+              <input type="number" id="minPrice" placeholder="Min ₫">
+              <span>-</span>
+              <input type="number" id="maxPrice" placeholder="Max ₫">
+            </div>
+          </div>
+          <div class="filter-item">
+            <label>Date Range</label>
+            <div class="date-range">
+              <input type="date" id="startDate">
+              <span>to</span>
+              <input type="date" id="endDate">
+            </div>
+          </div>
+          <div class="filter-item">
+            <label>Sort By</label>
+            <select id="sortBy">
+              <option value="date-desc">Date (Newest)</option>
+              <option value="date-asc">Date (Oldest)</option>
+              <option value="price-desc">Price (High to Low)</option>
+              <option value="price-asc">Price (Low to High)</option>
+              <option value="store">Store Name</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-actions">
+          <button id="applyFilters" class="apply-btn">Apply Filters</button>
+          <button id="clearFilters" class="clear-btn">Clear All</button>
+        </div>
+      </div>
+      
+      <!-- Bill List -->
+      <div id="billList"></div>
+      
+      <!-- Bill Detail -->
+      <div id="billDetail"></div>
+    </div>
+  </div>
+
+  <!-- ANALYTICS TAB -->
+  <div class="tab-content" id="analyticsTab">
+    <div class="content-wrapper">
+      <h1>📊 Analytics Dashboard</h1>
+      
+      <!-- Analytics Period Selector -->
+      <div class="period-selector">
+        <button class="period-btn active" data-period="month">This Month</button>
+        <button class="period-btn" data-period="3months">Last 3 Months</button>
+        <button class="period-btn" data-period="6months">Last 6 Months</button>
+        <button class="period-btn" data-period="year">This Year</button>
+        <button class="period-btn" data-period="all">All Time</button>
+      </div>
+
+      <!-- Quick Stats Grid -->
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <div class="card-icon">💰</div>
+          <div class="card-content">
+            <div class="card-label">Total Spending</div>
+            <div class="card-value" id="analyticsTotal">₫0</div>
+            <div class="card-change" id="analyticsTotalChange">-</div>
+          </div>
+        </div>
+        
+        <div class="analytics-card">
+          <div class="card-icon">📦</div>
+          <div class="card-content">
+            <div class="card-label">Total Orders</div>
+            <div class="card-value" id="analyticsOrders">0</div>
+            <div class="card-change" id="analyticsOrdersChange">-</div>
+          </div>
+        </div>
+        
+        <div class="analytics-card">
+          <div class="card-icon">📊</div>
+          <div class="card-content">
+            <div class="card-label">Average Order</div>
+            <div class="card-value" id="analyticsAvg">₫0</div>
+            <div class="card-change" id="analyticsAvgChange">-</div>
+          </div>
+        </div>
+        
+        <div class="analytics-card">
+          <div class="card-icon">🏆</div>
+          <div class="card-content">
+            <div class="card-label">Top Store</div>
+            <div class="card-value" id="analyticsTopStore">-</div>
+            <div class="card-subtext" id="analyticsTopStoreCount">-</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      <div class="charts-grid">
+        <!-- Spending Trend Chart -->
+        <div class="chart-container">
+          <h3>📈 Spending Trend</h3>
+          <canvas id="spendingTrendChart"></canvas>
+        </div>
+
+        <!-- Store Distribution Chart -->
+        <div class="chart-container">
+          <h3>🏪 Top Stores</h3>
+          <canvas id="storeDistributionChart"></canvas>
+        </div>
+
+        <!-- Day of Week Chart -->
+        <div class="chart-container">
+          <h3>📅 Orders by Day of Week</h3>
+          <canvas id="dayOfWeekChart"></canvas>
+        </div>
+
+        <!-- Time of Day Chart -->
+        <div class="chart-container">
+          <h3>⏰ Orders by Time of Day</h3>
+          <canvas id="timeOfDayChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Insights Section -->
+      <div class="insights-section">
+        <h3>💡 Insights</h3>
+        <div id="insightsList" class="insights-list"></div>
+      </div>
+
+      <!-- Top Items Section -->
+      <div class="top-items-section">
+        <h3>🍽️ Most Ordered Items</h3>
+        <div id="topItemsList" class="top-items-list"></div>
       </div>
     </div>
-    
-    <!-- Month Dropdown -->
-    <div class="glass-dropdown" id="monthDropdown">
-      <div class="selected" onclick="toggleDropdown()">
-        <span id="selectedMonth">📅 Select Month</span>
-        <span>▼</span>
+  </div>
+
+  <!-- FAVORITES TAB -->
+  <div class="tab-content" id="favoritesTab">
+    <div class="content-wrapper">
+      <h1>⭐ Favorite Stores</h1>
+      
+      <div class="favorites-grid" id="favoritesList">
+        <div class="empty-state">
+          <div class="empty-state-icon">⭐</div>
+          <div class="empty-state-text">No favorites yet</div>
+          <div class="empty-state-subtext">Star your favorite stores from the bills list</div>
+        </div>
       </div>
-      <div class="options" id="monthOptions"></div>
+
+      <h2 style="margin-top: 40px;">📝 Custom Lists</h2>
+      <div class="lists-section">
+        <button id="createListBtn" class="create-list-btn">+ Create New List</button>
+        <div id="customLists" class="custom-lists"></div>
+      </div>
     </div>
-    
-    <!-- Search Bar -->
-    <div class="search-container" id="searchContainer">
-      <input 
-        type="text" 
-        id="searchInput"
-        class="search-input"
-        placeholder="🔍 Search by store, date, or items..."
-        oninput="filterBills()"
-      >
+  </div>
+
+  <!-- BUDGET TAB -->
+  <div class="tab-content" id="budgetTab">
+    <div class="content-wrapper">
+      <h1>💰 Budget Tracking</h1>
+      
+      <!-- Budget Setup -->
+      <div class="budget-setup">
+        <h3>Monthly Budget</h3>
+        <div class="budget-input-group">
+          <input type="number" id="budgetAmount" placeholder="Enter monthly budget (₫)">
+          <button id="setBudgetBtn" class="set-budget-btn">Set Budget</button>
+        </div>
+        <div id="budgetStatus" class="budget-status"></div>
+      </div>
+
+      <!-- Budget Progress -->
+      <div class="budget-progress-card" id="budgetProgressCard" style="display: none;">
+        <h3>This Month's Budget</h3>
+        <div class="budget-visual">
+          <div class="budget-bar">
+            <div class="budget-bar-fill" id="budgetBarFill"></div>
+          </div>
+          <div class="budget-numbers">
+            <span id="budgetSpent">₫0</span>
+            <span>/</span>
+            <span id="budgetTotal">₫0</span>
+          </div>
+          <div class="budget-percentage" id="budgetPercentage">0%</div>
+        </div>
+        <div class="budget-remaining" id="budgetRemaining"></div>
+        <div class="budget-projection" id="budgetProjection"></div>
+      </div>
+
+      <!-- Budget Alerts -->
+      <div class="budget-alerts" id="budgetAlerts"></div>
+
+      <!-- Spending by Category -->
+      <div class="spending-breakdown">
+        <h3>Monthly Spending History</h3>
+        <canvas id="budgetHistoryChart"></canvas>
+      </div>
+
+      <!-- Savings Tips -->
+      <div class="savings-tips">
+        <h3>💡 Savings Tips</h3>
+        <div id="savingsTips" class="tips-list"></div>
+      </div>
     </div>
-    
-    <!-- Bill List -->
-    <div id="billList"></div>
-    
-    <!-- Bill Detail -->
-    <div id="billDetail"></div>
   </div>
 </div>
 
@@ -120,6 +320,36 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Modals -->
+<div class="modal" id="exportModal">
+  <div class="modal-content">
+    <h2>📥 Export Bills</h2>
+    <p>Choose export format:</p>
+    <div class="export-options">
+      <button id="exportCSV" class="export-option-btn">
+        <span>📄</span>
+        <span>CSV</span>
+      </button>
+      <button id="exportJSON" class="export-option-btn">
+        <span>📋</span>
+        <span>JSON</span>
+      </button>
+    </div>
+    <button class="modal-close" id="closeExportModal">Cancel</button>
+  </div>
+</div>
+
+<div class="modal" id="createListModal">
+  <div class="modal-content">
+    <h2>📝 Create Custom List</h2>
+    <input type="text" id="listName" placeholder="List name (e.g., Work Lunches)">
+    <div class="modal-actions">
+      <button id="saveListBtn" class="primary-btn">Create</button>
+      <button class="modal-close" id="closeListModal">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script type="module" src="./app-with-auth.js"></script>
 </body>
