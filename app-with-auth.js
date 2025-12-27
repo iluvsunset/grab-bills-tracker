@@ -526,8 +526,23 @@ async function syncGmailBills(token) {
         );
         
         const fullMessage = await msgResponse.json();
-        const payload = fullMessage.payload;
-        const body = extractEmailBody(payload);
+    
+    // 🔍 DEBUG: Save raw payload for inspection
+    console.log('=' .repeat(100));
+    console.log('📧 RAW EMAIL STRUCTURE - FULL PAYLOAD:');
+    console.log('='.repeat(100));
+    console.log(JSON.stringify(fullMessage.payload, null, 2));
+    console.log('='.repeat(100));
+    
+    // Save to global window object for interactive inspection
+    window.lastEmailPayload = fullMessage.payload;
+    window.fullEmailMessage = fullMessage;
+    
+    console.log('💡 Saved to window.lastEmailPayload - type this in console to explore!');
+    console.log('💡 Try: window.lastEmailPayload.parts[0].parts');
+    
+    const payload = fullMessage.payload;
+    const body = extractEmailBody(payload);
         const dateHeader = payload.headers.find(h => h.name.toLowerCase() === 'date');
         const emailDate = dateHeader ? new Date(dateHeader.value) : new Date();
         const billData = extractBillData(body, emailDate, fullMessage.threadId);
