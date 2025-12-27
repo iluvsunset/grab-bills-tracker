@@ -13,8 +13,9 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
+  addDoc,
   query, 
-  where, 
+  where,
   orderBy 
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
@@ -44,6 +45,7 @@ let months = [];
 let currentBills = [];
 let allBillsCount = 0;
 let allBillsCache = [];
+let gmailAccessToken = null;
 
 // ============================================
 // AUTH FUNCTIONS
@@ -59,13 +61,20 @@ async function handleGoogleSignIn() {
     
     // Get Gmail OAuth token
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    const gmailToken = credential.accessToken;
+    gmailAccessToken = credential?.accessToken;
     
     console.log('✅ User signed in:', currentUser.email);
-    console.log('📧 Gmail token obtained');
+    console.log('📧 Gmail token:', gmailAccessToken ? 'Available' : 'Not available');
     
-    // Show sync UI
-    showSyncScreen(gmailToken);
+    // Load existing bills first
+    await loadUserBills();
+    
+    // If user has no bills, offer to sync
+    if (allBillsCount === 0 && gmailAccessToken) {
+      showSyncPrompt();
+    } else {
+      showMainApp();
+    }
     
   } catch (error) {
     console.error('❌ Sign in error:', error);
@@ -77,6 +86,7 @@ async function handleGoogleSignIn() {
 async function handleSignOut() {
   try {
     await signOut(auth);
+    gmailAccessToken = null;
     showLoginScreen();
     showToast('✓ Signed out');
   } catch (error) {
@@ -86,19 +96,91 @@ async function handleSignOut() {
 }
 
 // ============================================
-// SYNC FUNCTION (Extract Gmail Bills)
+// GMAIL SYNC FUNCTIONS
 // ============================================
 
-async function syncGmailBills(gmailToken) {
+function showSyncPrompt() {
+  const syncPrompt = document.createElement('div');
+  syncPrompt.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(135deg, rgba(0, 255, 255, 0.15) 0%, rgba(255, 0, 255, 0.15) 100%);
+    backdrop-filter: blur(20px);
+    padding: 40px;
+    border-radius: 20px;
+    border: 2px solid rgba(0, 255, 255, 0.5);
+    box-shadow: 0 20px 60px rgba(0, 255, 255, 0.3);
+    text-align: center;
+    z-index: 1001;
+    max-width: 400px;
+  `;
+  
+  syncPrompt.innerHTML = `
+    <h2 style="color: #00ffff; margin-bottom: 20px;">📧 Sync Your Bills?</h2>
+    <p style="color: #fff; margin-bottom: 30px;">
+      Would you like to import your GrabFood receipts from Gmail?
+    </p>
+    <div style="display: flex; gap: 15px; justify-content: center;">
+      <button id="syncNowBtn" style="
+        background: linear-gradient(135deg, #00ffff 0%, #00cccc 100%);
+        color: #0a0e27;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 14px;
+      ">Yes, Sync Now</button>
+      <button id="skipSyncBtn" style="
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        padding: 12px 30px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 14px;
+      ">Skip</button>
+    </div>
+  `;
+  
+  document.body.appendChild(syncPrompt);
+  
+  document.getElementById('syncNowBtn').onclick = async () => {
+    document.body.removeChild(syncPrompt);
+    await syncGmailBills(gmailAccessToken);
+    showMainApp();
+  };
+  
+  document.getElementById('skipSyncBtn').onclick = () => {
+    document.body.removeChild(syncPrompt);
+    showMainApp();
+  };
+}
+
+async function syncGmailBills(token) {
+  if (!token) {
+    showToast('❌ Gmail access not available. Please sign in again.');
+    return;
+  }
+  
   try {
-    showToast('🔄 Extracting bills from Gmail...');
+    showLoading(true);
+    showToast('🔄 Syncing Gmail receipts...');
     
-    // Call Gmail API to fetch emails
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Your Grab E-Receipt"&maxResults=100', {
-      headers: {
-        'Authorization': `Bearer ${gmailToken}`
+    // Fetch Gmail messages
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Your Grab E-Receipt"&maxResults=50',
+      {
+        headers: { 'Authorization': `Bearer ${token}` }
       }
-    });
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Gmail API error: ${response.status}`);
+    }
     
     const data = await response.json();
     const messages = data.messages || [];
@@ -107,16 +189,16 @@ async function syncGmailBills(gmailToken) {
     showToast(`Found ${messages.length} receipts. Processing...`);
     
     const bills = [];
-    let processed = 0;
     
-    for (const message of messages) {
+    for (let i = 0; i < messages.length; i++) {
       try {
         // Get full message
-        const msgResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`, {
-          headers: {
-            'Authorization': `Bearer ${gmailToken}`
+        const msgResponse = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messages[i].id}?format=full`,
+          {
+            headers: { 'Authorization': `Bearer ${token}` }
           }
-        });
+        );
         
         const fullMessage = await msgResponse.json();
         const payload = fullMessage.payload;
@@ -133,12 +215,11 @@ async function syncGmailBills(gmailToken) {
         
         if (billData.valid) {
           bills.push(billData);
-          processed++;
         }
         
         // Update progress
-        if (processed % 10 === 0) {
-          showToast(`Processed ${processed}/${messages.length}...`);
+        if ((i + 1) % 10 === 0) {
+          showToast(`Processed ${i + 1}/${messages.length}...`);
         }
         
       } catch (error) {
@@ -148,18 +229,18 @@ async function syncGmailBills(gmailToken) {
     
     console.log(`✅ Successfully extracted ${bills.length} bills`);
     
-    // Save to Firestore under user's collection
+    // Save to Firestore
     await saveBillsToFirestore(bills);
     
     showToast(`✓ Synced ${bills.length} bills!`);
     
-    // Load and display bills
+    // Reload bills
     await loadUserBills();
-    showMainApp();
     
   } catch (error) {
     console.error('❌ Sync error:', error);
     showToast('✗ Sync failed: ' + error.message);
+  } finally {
     showLoading(false);
   }
 }
@@ -171,15 +252,12 @@ function extractEmailBody(payload) {
   }
   
   if (payload.parts) {
-    // Try text/html first
     let part = payload.parts.find(p => p.mimeType === 'text/html');
     if (part && part.body && part.body.data) {
       const html = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      // Strip HTML tags
       return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
     }
     
-    // Try text/plain
     part = payload.parts.find(p => p.mimeType === 'text/plain');
     if (part && part.body && part.body.data) {
       return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
@@ -192,7 +270,6 @@ function extractEmailBody(payload) {
 // Extract bill data from email body
 function extractBillData(body, emailDate, threadId) {
   try {
-    // Clean up HTML entities
     const cleanBody = body
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
@@ -200,18 +277,15 @@ function extractBillData(body, emailDate, threadId) {
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"');
 
-    // Extract total amount
     const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
                         cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
     
-    // Extract store name - handle delivery and pickup
     let storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+(?:[A-ZĐÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ][a-zđáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ]+\s+)*Giao đến/);
     
     if (!storeMatch) {
       storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+Hồ sơ/);
     }
     
-    // Extract food items
     const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
     let foodMatches = null;
     
@@ -227,19 +301,20 @@ function extractBillData(body, emailDate, threadId) {
     const foodItems = foodMatches ? foodMatches.join(", ") : null;
     const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
     
-    // Format date
     const yyyy = emailDate.getFullYear();
     const mm = String(emailDate.getMonth() + 1).padStart(2, '0');
     const dd = String(emailDate.getDate()).padStart(2, '0');
     const hh = String(emailDate.getHours()).padStart(2, '0');
     const min = String(emailDate.getMinutes()).padStart(2, '0');
     const formattedDate = `${yyyy}-${mm}-${dd} | ${hh}:${min}`;
+    const date = `${yyyy}-${mm}-${dd}`;
+    const month = `${yyyy}-${mm}`;
 
     if (formattedDate && totalAmount && storeName && foodItems) {
       return {
         datetime: formattedDate,
-        date: `${yyyy}-${mm}-${dd}`,
-        month: `${yyyy}-${mm}`,
+        date: date,
+        month: month,
         store: storeName,
         items: foodItems,
         total: totalAmount,
@@ -257,33 +332,31 @@ function extractBillData(body, emailDate, threadId) {
 
 // Save bills to Firestore
 async function saveBillsToFirestore(bills) {
-  const userEmail = currentUser.email;
   const userId = currentUser.uid;
+  console.log(`💾 Saving ${bills.length} bills to Firestore...`);
   
-  console.log(`💾 Saving ${bills.length} bills to Firestore for user ${userEmail}...`);
-  
-  // Save to user's collection
-  const userBillsRef = collection(db, 'grabfood_bills');
+  const userBillsRef = collection(db, `users/${userId}/grabfood_bills`);
+  let savedCount = 0;
   
   for (const bill of bills) {
     try {
-      // Check if bill already exists (by datetime)
+      // Check if bill already exists
       const q = query(userBillsRef, where('datetime', '==', bill.datetime));
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
-        // Add new bill
         await addDoc(userBillsRef, {
           ...bill,
           createdAt: new Date().toISOString()
         });
+        savedCount++;
       }
     } catch (error) {
       console.error('Error saving bill:', error);
     }
   }
   
-  console.log('✅ Bills saved to Firestore');
+  console.log(`✅ Saved ${savedCount} new bills`);
 }
 
 // ============================================
@@ -292,29 +365,15 @@ async function saveBillsToFirestore(bills) {
 
 function showLoginScreen() {
   document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('syncScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'none';
   showLoading(false);
-}
-
-function showSyncScreen(gmailToken) {
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('syncScreen').style.display = 'flex';
-  document.getElementById('mainApp').style.display = 'none';
-  
-  // Auto-start sync after 1 second
-  setTimeout(() => {
-    syncGmailBills(gmailToken);
-  }, 1000);
 }
 
 function showMainApp() {
   document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('syncScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   showLoading(false);
   
-  // Show user info
   if (currentUser) {
     document.getElementById('userEmail').textContent = currentUser.email;
   }
@@ -359,21 +418,25 @@ async function loadUserBills() {
     
     snapshot.forEach(doc => {
       const data = doc.data();
-      console.log('📄 Bill data:', data); // ADD THIS
-      
       if (data.datetime) {
+        // Extract month if not present
+        let month = data.month;
+        if (!month && data.datetime) {
+          const dateMatch = data.datetime.match(/^(\d{4}-\d{2})/);
+          if (dateMatch) {
+            month = dateMatch[1];
+          }
+        }
+        
         const bill = {
           id: doc.id,
-          ...data
+          ...data,
+          month: month
         };
         bills.push(bill);
         
-        // Check if month field exists
-        if (data.month) {
-          console.log('📅 Adding month:', data.month); // ADD THIS
-          monthSet.add(data.month);
-        } else {
-          console.warn('⚠️ Bill missing month field:', data); // ADD THIS
+        if (month) {
+          monthSet.add(month);
         }
       }
     });
@@ -382,13 +445,11 @@ async function loadUserBills() {
     allBillsCount = bills.length;
     months = Array.from(monthSet).sort().reverse();
     
-    console.log('📊 All months found:', months); // ADD THIS
-    console.log('📊 Total unique months:', months.length); // ADD THIS
+    console.log(`✅ Loaded ${bills.length} bills for user`);
+    console.log('📊 Months:', months);
     
     populateMonths();
     updateStats(0);
-    
-    console.log(`✅ Loaded ${bills.length} bills for user`);
     
   } catch (error) {
     console.error("❌ Error loading bills:", error);
@@ -425,6 +486,11 @@ window.toggleDropdown = function() {
 function populateMonths() {
   const optionsDiv = document.getElementById("monthOptions");
   optionsDiv.innerHTML = "";
+  
+  if (months.length === 0) {
+    optionsDiv.innerHTML = '<div style="padding: 14px 24px; color: #888;">No bills yet. Click "Sync Gmail" to import!</div>';
+    return;
+  }
   
   months.forEach((month) => {
     const opt = document.createElement("div");
@@ -531,6 +597,30 @@ window.filterBills = function() {
   }
 }
 
+// Add manual sync button handler
+window.manualSync = async function() {
+  if (!gmailAccessToken) {
+    // Need to re-authenticate to get Gmail permission
+    showToast('Re-authenticating for Gmail access...');
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      gmailAccessToken = credential?.accessToken;
+      
+      if (gmailAccessToken) {
+        await syncGmailBills(gmailAccessToken);
+      } else {
+        showToast('❌ Could not get Gmail access. Try signing out and in again.');
+      }
+    } catch (error) {
+      console.error('Re-auth error:', error);
+      showToast('❌ Authentication failed');
+    }
+  } else {
+    await syncGmailBills(gmailAccessToken);
+  }
+}
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -558,7 +648,6 @@ onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     console.log('✅ User already signed in:', user.email);
     
-    // Load existing bills
     showLoading(true);
     await loadUserBills();
     showMainApp();
