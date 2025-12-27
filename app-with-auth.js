@@ -21,7 +21,8 @@ import {
   where,
   orderBy,
   setDoc,
-  getDoc
+  getDoc,
+  enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -38,8 +39,49 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Enable offline persistence
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === 'failed-precondition') {
+    console.warn('⚠️ Multiple tabs open, persistence can only be enabled in one tab.');
+  } else if (err.code === 'unimplemented') {
+    console.warn('⚠️ Browser does not support offline persistence');
+  }
+});
+
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+
+// ============================================
+// DIAGNOSTIC: Test Firestore Connection
+// ============================================
+console.log('🔍 Firebase Diagnostics:');
+console.log('  Project ID:', firebaseConfig.projectId);
+console.log('  Auth Domain:', firebaseConfig.authDomain);
+console.log('  App Name:', app.name);
+
+(async () => {
+  try {
+    console.log('🔍 Testing Firestore connection...');
+    // Simple query that should work even with no data
+    const testRef = collection(db, '_test_connection');
+    const testQuery = query(testRef, where('dummy', '==', 'test'));
+    await getDocs(testQuery);
+    console.log('✅ Firestore is ONLINE and reachable!');
+  } catch (error) {
+    console.error('❌ Firestore connection FAILED:', error);
+    console.error('   Error code:', error.code);
+    console.error('   Error message:', error.message);
+    
+    if (error.code === 'permission-denied') {
+      console.error('   💡 Solution: Check Firestore Security Rules');
+    } else if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+      console.error('   💡 Solution: Create Firestore database in Firebase Console');
+      console.error('   👉 https://console.firebase.google.com/project/school-menu-bot-bedd1/firestore');
+    } else if (error.code === 'unauthenticated') {
+      console.error('   💡 This is normal before sign-in');
+    }
+  }
+})();
 
 // ============================================
 // GLOBAL STATE
@@ -78,6 +120,7 @@ async function handleGoogleSignIn() {
     gmailAccessToken = credential?.accessToken;
     
     console.log('✅ User signed in:', currentUser.email);
+    console.log('✅ Gmail token:', gmailAccessToken ? 'Obtained' : 'Not available');
     
     await loadUserData();
     
@@ -124,6 +167,7 @@ async function loadUserData() {
     ]);
   } catch (error) {
     console.error('❌ Error loading user data:', error);
+    showToast('⚠️ Some data failed to load. Check console for details.');
   } finally {
     showLoading(false);
   }
@@ -131,10 +175,19 @@ async function loadUserData() {
 
 async function loadUserBills() {
   try {
+    if (!currentUser) {
+      console.warn('⚠️ No user logged in, skipping bill load');
+      return;
+    }
+
+    console.log('📊 Loading bills for user:', currentUser.uid);
     const userId = currentUser.uid;
     const userBillsRef = collection(db, `users/${userId}/grabfood_bills`);
     const q = query(userBillsRef, orderBy("datetime", "desc"));
+    
+    console.log('🔍 Executing Firestore query...');
     const snapshot = await getDocs(q);
+    console.log('✅ Query successful, processing documents...');
     
     const bills = [];
     const monthSet = new Set();
@@ -167,19 +220,31 @@ async function loadUserBills() {
     allBillsCount = bills.length;
     months = Array.from(monthSet).sort().reverse();
     
-    console.log(`✅ Loaded ${bills.length} bills`);
+    console.log(`✅ Loaded ${bills.length} bills from ${months.length} months`);
     
     populateMonths();
     updateStats(0);
     
   } catch (error) {
     console.error("❌ Error loading bills:", error);
-    showToast('✗ Failed to load bills');
+    console.error("   Code:", error.code);
+    console.error("   Message:", error.message);
+    
+    if (error.code === 'unavailable') {
+      showToast('⚠️ Firestore unavailable. Database may not exist.');
+      console.error('👉 Create database at: https://console.firebase.google.com/project/school-menu-bot-bedd1/firestore');
+    } else if (error.code === 'permission-denied') {
+      showToast('⚠️ Permission denied. Check Firestore rules.');
+    } else {
+      showToast('✗ Failed to load bills');
+    }
   }
 }
 
 async function loadFavorites() {
   try {
+    if (!currentUser) return;
+    
     const userId = currentUser.uid;
     const favoritesDoc = await getDoc(doc(db, `users/${userId}/settings/favorites`));
     
@@ -187,14 +252,19 @@ async function loadFavorites() {
       const data = favoritesDoc.data();
       favoriteStores = new Set(data.stores || []);
       console.log(`✅ Loaded ${favoriteStores.size} favorites`);
+    } else {
+      console.log('ℹ️ No favorites document found (this is normal for new users)');
     }
   } catch (error) {
-    console.error('Error loading favorites:', error);
+    console.error('⚠️ Error loading favorites:', error.code, error.message);
+    // Non-critical, don't show error to user
   }
 }
 
 async function loadCustomLists() {
   try {
+    if (!currentUser) return;
+    
     const userId = currentUser.uid;
     const listsRef = collection(db, `users/${userId}/custom_lists`);
     const snapshot = await getDocs(listsRef);
@@ -209,12 +279,14 @@ async function loadCustomLists() {
     
     console.log(`✅ Loaded ${customLists.length} custom lists`);
   } catch (error) {
-    console.error('Error loading custom lists:', error);
+    console.error('⚠️ Error loading custom lists:', error.code, error.message);
   }
 }
 
 async function loadBudget() {
   try {
+    if (!currentUser) return;
+    
     const userId = currentUser.uid;
     const budgetDoc = await getDoc(doc(db, `users/${userId}/settings/budget`));
     
@@ -222,9 +294,11 @@ async function loadBudget() {
       const data = budgetDoc.data();
       monthlyBudget = data.monthly || 0;
       console.log(`✅ Loaded budget: ₫${monthlyBudget.toLocaleString()}`);
+    } else {
+      console.log('ℹ️ No budget set (this is normal for new users)');
     }
   } catch (error) {
-    console.error('Error loading budget:', error);
+    console.error('⚠️ Error loading budget:', error.code, error.message);
   }
 }
 
@@ -239,8 +313,10 @@ async function saveFavorites() {
       stores: Array.from(favoriteStores),
       updatedAt: new Date().toISOString()
     });
+    console.log('✅ Favorites saved');
   } catch (error) {
-    console.error('Error saving favorites:', error);
+    console.error('❌ Error saving favorites:', error);
+    showToast('⚠️ Failed to save favorites');
   }
 }
 
@@ -252,10 +328,14 @@ async function saveBudget(amount) {
       updatedAt: new Date().toISOString()
     });
     monthlyBudget = amount;
+    console.log('✅ Budget saved');
   } catch (error) {
-    console.error('Error saving budget:', error);
+    console.error('❌ Error saving budget:', error);
+    showToast('⚠️ Failed to save budget');
+    throw error;
   }
 }
+
 
 // ============================================
 // GMAIL SYNC FUNCTIONS
@@ -2282,3 +2362,17 @@ onAuthStateChanged(auth, async (user) => {
     showLoginScreen();
   }
 });
+
+async function testFirestore() {
+  try {
+    const testRef = collection(db, 'test');
+    const testDoc = await addDoc(testRef, { test: 'Hello Firestore!' });
+    console.log('✅ Firestore is working! Doc ID:', testDoc.id);
+    showToast('✅ Firestore connection successful!');
+  } catch (error) {
+    console.error('❌ Firestore test failed:', error);
+    showToast(`❌ Firestore error: ${error.message}`);
+  }
+}
+
+window.testFirestore = testFirestore;
