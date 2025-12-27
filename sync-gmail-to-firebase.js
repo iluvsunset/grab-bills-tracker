@@ -44,6 +44,13 @@ function extractBillData(body, emailDate, threadId) {
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"');
 
+    // DEBUG: Show first 1000 characters of email
+    console.log('\n' + '='.repeat(80));
+    console.log('📧 EMAIL CONTENT PREVIEW:');
+    console.log('='.repeat(80));
+    console.log(cleanBody.substring(0, 1000));
+    console.log('='.repeat(80) + '\n');
+
     // Extract total amount
     const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
                         cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
@@ -79,22 +86,38 @@ function extractBillData(body, emailDate, threadId) {
     const date = `${yyyy}-${mm}-${dd}`;
     const month = `${yyyy}-${mm}`;
 
-    if (formattedDate && totalAmount && storeName && foodItems) {
+    // DEBUG: Show extracted data
+    console.log('🔍 EXTRACTION RESULTS:');
+    console.log('─'.repeat(80));
+    console.log('📅 Date/Time:', formattedDate);
+    console.log('💰 Total Amount:', totalAmount || '❌ NOT FOUND');
+    console.log('🏪 Store Name:', storeName || '❌ NOT FOUND');
+    console.log('🍔 Food Items:', foodItems || '❌ NOT FOUND');
+    console.log('🔗 Email Link:', emailLink);
+    console.log('─'.repeat(80) + '\n');
+
+    // More lenient validation - save even with partial data
+    if (formattedDate && (totalAmount || storeName)) {
+      if (!totalAmount || !storeName || !foodItems) {
+        console.log('⚠️  WARNING: Saving with incomplete data');
+      }
+      
       return {
         datetime: formattedDate,
         date: date,
         month: month,
-        store: storeName,
-        items: foodItems,
-        total: totalAmount,
+        store: storeName || 'Unknown Store',
+        items: foodItems || 'No items found',
+        total: totalAmount || 'Unknown Amount',
         link: emailLink,
         valid: true
       };
     }
 
+    console.log('❌ SKIPPING: Missing critical data (date, amount, or store)\n');
     return { valid: false };
   } catch (error) {
-    console.error('Error extracting bill data:', error.message);
+    console.error('❌ Error extracting bill data:', error.message);
     return { valid: false };
   }
 }
@@ -138,17 +161,6 @@ async function getProcessedLabelId(gmail) {
     
   } catch (error) {
     console.error('Error with label:', error.message);
-    return null;
-  }
-}
-
-// Get Gmail address from token
-function getGmailFromToken() {
-  try {
-    const token = JSON.parse(fs.readFileSync('gmail-token.json'));
-    // Gmail token might have email info
-    return null; // We'll get it from Gmail API instead
-  } catch {
     return null;
   }
 }
@@ -201,6 +213,10 @@ async function syncGmailToFirebase() {
 
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
+      
+      console.log(`\n${'▓'.repeat(80)}`);
+      console.log(`📨 PROCESSING EMAIL [${i + 1}/${messages.length}]`);
+      console.log(`${'▓'.repeat(80)}`);
       
       try {
         const fullMessage = await gmail.users.messages.get({
@@ -255,7 +271,7 @@ async function syncGmailToFirebase() {
             .get();
           
           if (!existingBills.empty) {
-            console.log(`⏭️  [${i + 1}/${messages.length}] Already exists - ${billData.store}`);
+            console.log(`⏭️  RESULT: Already exists in database`);
             skipCount++;
             continue;
           }
@@ -273,7 +289,7 @@ async function syncGmailToFirebase() {
           });
 
           successCount++;
-          console.log(`✅ [${i + 1}/${messages.length}] ${billData.store} - ${billData.total}`);
+          console.log(`✅ RESULT: Successfully saved to Firebase`);
 
           // Add "Processed" label to email
           if (processedLabelId) {
@@ -284,11 +300,12 @@ async function syncGmailToFirebase() {
                 addLabelIds: [processedLabelId]
               }
             });
+            console.log(`🏷️  Added "Processed" label to email`);
           }
 
         } else {
           skipCount++;
-          console.log(`⚠️  [${i + 1}/${messages.length}] Skipped - Missing data`);
+          console.log(`❌ RESULT: Skipped - validation failed`);
         }
 
       } catch (error) {
@@ -297,17 +314,18 @@ async function syncGmailToFirebase() {
       }
     }
 
-    console.log('\n' + '='.repeat(60));
-    console.log('🎉 Sync Complete!');
-    console.log('='.repeat(60));
+    console.log('\n\n' + '█'.repeat(80));
+    console.log('🎉 SYNC COMPLETE!');
+    console.log('█'.repeat(80));
     console.log(`✅ Successfully synced: ${successCount} bills`);
-    console.log(`⚠️  Skipped: ${skipCount} emails`);
+    console.log(`⚠️  Skipped/Duplicates: ${skipCount} emails`);
     console.log(`📊 Total processed: ${messages.length} emails`);
     console.log(`💾 Saved to: users/${userId}/grabfood_bills`);
-    console.log('='.repeat(60) + '\n');
+    console.log('█'.repeat(80) + '\n');
 
   } catch (error) {
     console.error('\n❌ Sync failed:', error.message);
+    console.error('Stack trace:', error.stack);
     
     if (error.code === 'ENOENT') {
       console.error('💡 Missing file. Did you run: node setup-gmail-auth.js first?');
