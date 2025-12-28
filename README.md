@@ -1,284 +1,105 @@
-# 🍔 Grab Bills Tracker
+# 🍔 GrabFood Bills Portal
 
-A comprehensive web application for tracking and analyzing your Grab receipts (GrabFood, GrabBike, GrabCar) with automatic Gmail sync, analytics, budgeting, and AI-powered insights.
-Show Image
-Show Image
-Show Image
-✨ Features
-📧 Automatic Gmail Sync
+A comprehensive dashboard to track, analyze, and manage your GrabFood (and other Grab services) spending. This project syncs your Grab receipts from Gmail to Firebase and presents them in a beautiful, sci-fi themed web interface.
 
-One-Click Import: Automatically fetches all Grab E-Receipts from your Gmail
-Smart Parsing: Extracts order details, amounts, stores, items, and trip information
-Duplicate Prevention: Intelligent detection to avoid importing the same receipt twice
-Email Labeling: Automatically labels processed emails as "Processed" in Gmail
-Multi-Service Support: Handles GrabFood, GrabBike, and GrabCar receipts
+## ✨ Features
 
-📊 Analytics Dashboard
-
-Spending Trends: Visualize your spending patterns over time
-Top Stores: See which restaurants or services you use most
-Heatmap Calendar: GitHub-style spending intensity visualization
-Day/Time Analysis: Discover when you order most frequently
-AI Insights: Get personalized recommendations based on your habits
-Most Ordered Items: Track your favorite dishes
-
-💰 Budget Tracking
-
-Monthly Budget: Set spending limits and track progress
-Real-time Alerts: Get notified when approaching or exceeding budget
-Spending Projections: Forecast end-of-month spending based on current trends
-Historical Comparison: See how you're doing vs. previous months
-Savings Tips: AI-generated recommendations to reduce spending
-
-⭐ Favorites & Lists
-
-Favorite Stores: Star your go-to restaurants and services
-Custom Lists: Create organized lists (Work Lunches, Weekend Treats, etc.)
-Quick Stats: See order counts and spending for each favorite
-
-🔍 Advanced Filtering & Search
-
-Real-time Search: Find bills by store, date, items, or amount
-Multi-Filter Support:
-
-Bill Type (Food, Bike, Car)
-Price Range
-Date Range
-Sort Options
-
-
-Export Data: Download bills as CSV or JSON
-
-🎨 Modern UI/UX
-
-Futuristic Design: Cyberpunk-inspired interface with glassmorphism
-Smooth Animations: Engaging transitions and 3D tilt effects
-Responsive Layout: Works perfectly on desktop, tablet, and mobile
-Dark Theme: Eye-friendly dark mode with neon accents
-Particle Effects: Dynamic background animations
-
-🚀 Getting Started
-Prerequisites
-
-A Google account with Grab receipts in Gmail
-Modern web browser (Chrome, Firefox, Safari, Edge)
-Firebase account (free tier works fine)
-
-Installation
-
-Clone the repository
-
-bashgit clone https://github.com/yourusername/grab-bills-tracker.git
-cd grab-bills-tracker
-
-Set up Firebase
-
-Go to Firebase Console
-Create a new project
-Enable Authentication → Google Sign-In
-Enable Firestore Database (Start in production mode, then update rules)
-Get your Firebase config credentials
-
-
-Configure Firebase
-Open app-with-auth.js and replace the Firebase config (around line 28):
-
-javascript   const firebaseConfig = {
-     apiKey: "YOUR_API_KEY",
-     authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-     projectId: "YOUR_PROJECT_ID",
-     storageBucket: "YOUR_PROJECT_ID.appspot.com",
-     messagingSenderId: "YOUR_SENDER_ID",
-     appId: "YOUR_APP_ID",
-     measurementId: "YOUR_MEASUREMENT_ID"
-   };
-
-Update Firestore Security Rules
-In Firebase Console → Firestore Database → Rules:
-
-javascript   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /users/{userId}/{document=**} {
-         allow read, write: if request.auth != null && request.auth.uid == userId;
-       }
-     }
-   }
-
-Configure Gmail API Permissions
-In Firebase Console → Authentication → Settings → Authorized domains:
-
-Add your domain (e.g., localhost for local testing)
-Add yourdomain.com for production
-
-
-Deploy or Run Locally
-Option A: Local Development
-
-bash   # Using Python
-   python -m http.server 8000
-   
-   # Using Node.js
-   npx serve .
-   
-   # Using PHP
-   php -S localhost:8000
-Then open http://localhost:8000
-Option B: Deploy to Firebase Hosting
-bash   npm install -g firebase-tools
-   firebase login
-   firebase init hosting
-   firebase deploy
-```
-
-## 📖 Usage Guide
-
-### First Time Setup
-
-1. **Sign In**
-   - Click "Sign in with Google"
-   - Grant Gmail read permissions (to fetch receipts)
-   - Grant Gmail modify permissions (to label processed emails)
-
-2. **Sync Your Bills**
-   - Click "🔄 Sync Gmail" button
-   - Wait for the app to process all your receipts
-   - Bills are automatically categorized by type
-
-3. **Explore Your Data**
-   - Navigate through tabs: Bills, Analytics, Favorites, Budget
-   - Use filters to narrow down results
-   - Set a monthly budget to track spending
-
-### Key Features Walkthrough
-
-#### 📋 Bills Tab
-- **Month Timeline**: Horizontal scrollable timeline showing all months with orders
-- **Search**: Real-time search across stores, dates, and items
-- **Filters**: Advanced filtering by type, price, date, and sort options
-- **Quick Actions**: Star favorites, view details, export data
-
-#### 📊 Analytics Tab
-- **Period Selector**: View data for month, 3 months, 6 months, year, or all time
-- **Quick Stats Cards**: Total spending, orders, average, and top store
-- **Spending Heatmap**: Calendar view showing order frequency
-- **Charts**: Line, doughnut, and bar charts for various metrics
-- **AI Insights**: Automatically generated insights about your habits
-
-#### ⭐ Favorites Tab
-- **Favorite Stores**: Quick access to your starred restaurants
-- **Statistics**: See order counts and spending per favorite
-- **Custom Lists**: Organize bills into custom categories
-
-#### 💰 Budget Tab
-- **Set Budget**: Define monthly spending limits
-- **Progress Bar**: Visual representation of budget usage
-- **Alerts**: Warnings when approaching or exceeding budget
-- **Projections**: Forecast based on current spending rate
-- **Tips**: AI-generated savings recommendations
-
-## 🎯 Supported Bill Types
-
-### 🍽️ GrabFood
-- Restaurant name
-- Food items with quantities
-- Total amount
-- Delivery fees and discounts
-- Order datetime
-
-### 🏍️ GrabBike
-- Trip route (from → to)
-- Distance (km)
-- Duration (minutes)
-- Driver name and rating
-- Fare breakdown
-
-### 🚗 GrabCar
-- Trip route (from → to)
-- Distance (km)
-- Duration (minutes)
-- Driver name and rating
-- Fare breakdown
+- **🔄 Gmail Sync:** Automatically fetches Grab receipts from your Gmail account and parses them for details.
+- **📊 Analytics Dashboard:**
+  - Visualize spending trends over time.
+  - Heatmap of ordering intensity.
+  - Top stores and most ordered items.
+  - Spending breakdown by day of week and time of day.
+- **📋 Smart Bill Management:**
+  - Search by store, date, or specific food items.
+  - Filter by service type (Food, Bike, Car, Mart, Express).
+  - Sort by date, price, or store name.
+- **💰 Budget Tracking:** Set monthly budgets and track your progress with visual alerts and history.
+- **⭐ Favorites & Lists:** Save your favorite stores and create custom collections (e.g., "Work Lunches").
+- **🔮 AI Cravings Predictor:** A fun "AI Pick" feature to help you decide what to eat based on your history.
+- **📥 Export Data:** Export your bill history to CSV or JSON formats.
+- **🌗 Modern UI:** Responsive, dark-mode interface with particle effects and smooth animations.
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: Vanilla JavaScript (ES6+)
-- **UI Framework**: Custom CSS with Glassmorphism
-- **Authentication**: Firebase Authentication
-- **Database**: Cloud Firestore
-- **Charts**: Chart.js
-- **Email Integration**: Gmail API
-- **Hosting**: Firebase Hosting (recommended)
+- **Frontend:** HTML5, CSS3, JavaScript (Vanilla ES6+)
+- **Backend (Scripts):** Node.js
+- **Database:** Firebase Firestore
+- **Authentication:** Google OAuth 2.0 (Client-side)
+- **APIs:** Gmail API (for fetching emails)
 
-## 📁 Project Structure
-```
-grab-bills-tracker/
-├── index.html              # Main HTML file
-├── styles.css              # All styles
-├── app-with-auth.js        # Main application logic
-├── README.md               # This file
-└── firebase.json           # Firebase config (if deploying)
-🔒 Privacy & Security
+## 🚀 Setup Guide
 
-Your Data: All data stays in YOUR Firebase project
-Email Access: Read-only access to fetch receipts, modify access to label emails
-No Third Parties: No data sent to external servers
-Open Source: Review the code yourself
-Firestore Rules: User-scoped security rules prevent unauthorized access
+### Prerequisites
+1.  **Node.js** installed on your machine.
+2.  A **Firebase Project** with Firestore enabled.
+3.  A **Google Cloud Project** with the Gmail API enabled.
 
-🐛 Troubleshooting
-"Firestore unavailable" error
+### Installation
 
-Ensure you've created a Firestore database in Firebase Console
-Check that security rules are properly configured
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd grabfood-bills
+    ```
 
-Gmail sync returns 403 errors
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
 
-Make sure you've added the gmail.modify scope
-Sign out and sign in again to refresh permissions
+3.  **Configuration:**
 
-Bills not appearing after sync
+    *   **Firebase Admin SDK:**
+        *   Go to your Firebase Project Settings > Service Accounts.
+        *   Generate a new private key.
+        *   Save the JSON file as `serviceAccountKey.json` in the root directory.
 
-Check browser console for errors
-Verify email format matches Grab's receipt format
-Ensure emails are from no-reply@grab.com
+    *   **Gmail API:**
+        *   Go to your Google Cloud Console > APIs & Services > Credentials.
+        *   Create OAuth 2.0 Client ID credentials (download as `credentials.json`).
+        *   Save `credentials.json` in the root directory.
+    
+    *   **Frontend Configuration:**
+        *   Update the Firebase config object in `app-with-auth.js` (or wherever the client-side init happens) with your project's details.
 
-Charts not rendering
+### 🏃‍♂️ Running the Project
 
-Ensure Chart.js CDN is loaded
-Check browser console for JavaScript errors
+1.  **Sync Data:**
+    Run the sync script to fetch emails from Gmail and save them to Firestore.
+    ```bash
+    node sync-gmail-to-firebase.js
+    ```
+    *Note: The first time you run this, you will be prompted to authorize access to your Gmail account via a browser.*
 
-🚧 Roadmap
+2.  **Start the Web App:**
+    Since this is a client-side app using ES modules, you need to serve it using a local web server (opening `index.html` directly might not work due to CORS/module policies).
+    
+    You can use a simple tool like `serve` or `http-server`:
+    ```bash
+    npx serve .
+    ```
+    or simply:
+    ```bash
+    python3 -m http.server
+    ```
 
- Multi-currency support
- Receipt OCR for manual uploads
- Export to PDF with visualizations
- Spending goals and achievements
- Social sharing of stats
- Mobile app (React Native)
- Browser extension for quick access
- Integration with other food delivery services
+3.  **Access the Dashboard:**
+    Open your browser and navigate to `http://localhost:3000` (or whatever port your server uses). Sign in with your Google account to view your data.
 
-🤝 Contributing
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 📂 Project Structure
 
-Fork the project
-Create your feature branch (git checkout -b feature/AmazingFeature)
-Commit your changes (git commit -m 'Add some AmazingFeature')
-Push to the branch (git push origin feature/AmazingFeature)
-Open a Pull Request
+- `index.html`: Main entry point for the web application.
+- `styles.css`: Global styles and UI themes.
+- `app-with-auth.js`: Main frontend logic, including Firebase auth and UI interactions.
+- `sync-gmail-to-firebase.js`: Node.js script to fetch and parse Gmail emails.
+- `setup-gmail-auth.js`: Helper script to handle initial Gmail API authentication.
+- `migrate-to-firebase.js`: Utility script for database migrations (if needed).
 
+## 🤝 Contributing
 
+Contributions are welcome! Feel free to open issues or submit pull requests for new features or bug fixes.
 
-Chart.js for beautiful charts
-Firebase for backend infrastructure
-Google Gmail API for email integration
-The open-source community
+## 📄 License
 
-📧 Contact
-iluvsunset - bao.h0146824@gmail.com
-Project Link: https://github.com/yourusername/grab-bills-tracker
-
-Made with ❤️ and 🍔 by [iluvsunset]
-Track smarter, spend wiser!
-
+This project is licensed under the ISC License.
