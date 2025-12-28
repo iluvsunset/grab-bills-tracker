@@ -620,80 +620,141 @@ function extractBillData(body, emailDate, threadId) {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
       .replace(/\s+/g, ' ')
       .trim();
 
     console.log('📧 Email preview:', cleanBody.substring(0, 1000));
 
     // ============================================
-    // ENHANCED BILL TYPE DETECTION
+    // COMPREHENSIVE BILL TYPE DETECTION
     // ============================================
-    const isFoodBill = cleanBody.includes('GrabFood') || 
-                       cleanBody.includes('Đặt từ') || 
-                       cleanBody.includes('Order from') ||
-                       cleanBody.includes('Số lượng:') ||
-                       cleanBody.includes('Tổng tạm tính') ||
-                       cleanBody.includes('Cước phí giao hàng') ||
-                       (cleanBody.includes('Your Grab E-Receipt') && cleanBody.includes('Chúc bạn ngon miệng'));
-    
-    // IMPROVED: Better transport detection including "Bike Plus", "Car", etc.
-    const isTransportBill = cleanBody.match(/\b(?:GrabBike|Bike Plus|GrabCar|JustGrab|Car|Bike)\b/i) &&
-                           (cleanBody.includes('Hope you enjoyed your ride') ||
-                            cleanBody.includes('Hy vọng bạn đã có một chuyến đi vui vẻ') ||
-                            cleanBody.includes('Giá theo công-tơ-mét') ||
-                            cleanBody.includes('Fare by meter') ||
-                            cleanBody.includes('Fare ') ||
-                            cleanBody.includes('Breakdown') ||
-                            cleanBody.includes('Your Trip') ||
-                            cleanBody.includes('Chuyến đi của bạn') ||
-                            cleanBody.includes('Vehicle fleet') ||
-                            cleanBody.includes('Picked up on'));
-    
-    // NEW: Detect other Grab services
-    const isExpressBill = cleanBody.includes('GrabExpress') || 
-                         cleanBody.includes('Giao hàng') ||
-                         cleanBody.includes('Delivery parcel');
-    
-    const isMartBill = cleanBody.includes('GrabMart') ||
-                      cleanBody.includes('GrabSupermarket');
-    
-    const isPayBill = cleanBody.includes('GrabPay') && 
-                     !isFoodBill && 
-                     !isTransportBill &&
-                     (cleanBody.includes('Payment') || cleanBody.includes('Thanh toán'));
+    const billTypePatterns = {
+      food: [
+        /GrabFood/i,
+        /Đặt từ/i,
+        /Order from/i,
+        /Số lượng:/i,
+        /Quantity:/i,
+        /Tổng tạm tính/i,
+        /Subtotal/i,
+        /Cước phí giao hàng/i,
+        /Delivery fee/i,
+        /Chúc bạn ngon miệng/i,
+        /Hope you enjoyed your meal/i,
+        /Food Order/i,
+        /Restaurant/i,
+        /Merchant/i
+      ],
+      transport: [
+        /GrabBike/i,
+        /GrabCar/i,
+        /JustGrab/i,
+        /Bike\s+Plus/i,
+        /Car\s+Plus/i,
+        /Hope you enjoyed your ride/i,
+        /Hy vọng bạn đã có một chuyến đi vui vẻ/i,
+        /Picked up on/i,
+        /Vehicle fleet/i,
+        /Booking ID/i,
+        /Your Trip/i,
+        /Chuyến đi của bạn/i,
+        /Fare\s+by\s+meter/i,
+        /Giá theo công-tơ-mét/i
+      ],
+      express: [
+        /GrabExpress/i,
+        /Giao hàng/i,
+        /Delivery parcel/i,
+        /Package delivered/i,
+        /Parcel/i,
+        /Express delivery/i
+      ],
+      mart: [
+        /GrabMart/i,
+        /GrabSupermarket/i,
+        /Grocery/i,
+        /Siêu thị/i
+      ],
+      pay: [
+        /GrabPay/i,
+        /Payment to/i,
+        /Thanh toán cho/i,
+        /Top[\s-]?up/i,
+        /Nạp tiền/i
+      ]
+    };
 
-    console.log('🔍 Bill Type Detection:', { 
-      isFoodBill, 
-      isTransportBill, 
-      isExpressBill, 
-      isMartBill,
-      isPayBill 
-    });
+    let billType = 'Unknown';
+    let serviceType = null;
+
+    // Detect bill type
+    for (const [type, patterns] of Object.entries(billTypePatterns)) {
+      if (patterns.some(pattern => pattern.test(cleanBody))) {
+        switch(type) {
+          case 'food':
+            billType = 'GrabFood';
+            break;
+          case 'transport':
+            // Detect specific transport type
+            if (/Bike\s+Plus/i.test(cleanBody)) {
+              billType = 'GrabBike';
+              serviceType = 'Bike Plus';
+            } else if (/GrabBike|(?<!\w)Bike(?!\w)/i.test(cleanBody)) {
+              billType = 'GrabBike';
+              serviceType = 'Bike';
+            } else if (/Car\s+Plus/i.test(cleanBody)) {
+              billType = 'GrabCar';
+              serviceType = 'Car Plus';
+            } else if (/JustGrab/i.test(cleanBody)) {
+              billType = 'GrabCar';
+              serviceType = 'JustGrab';
+            } else if (/GrabCar|(?<!\w)Car(?!\w)/i.test(cleanBody)) {
+              billType = 'GrabCar';
+              serviceType = 'Car';
+            } else {
+              billType = 'Grab Transport';
+            }
+            break;
+          case 'express':
+            billType = 'GrabExpress';
+            break;
+          case 'mart':
+            billType = 'GrabMart';
+            break;
+          case 'pay':
+            billType = 'GrabPay';
+            break;
+        }
+        break;
+      }
+    }
+
+    console.log('🔍 Bill Type Detection:', { billType, serviceType });
 
     // ============================================
-    // ENHANCED AMOUNT EXTRACTION
+    // COMPREHENSIVE AMOUNT EXTRACTION
     // ============================================
     let totalAmount = null;
     let amountValue = null;
     
-    // Try multiple patterns in priority order
     const amountPatterns = [
-      // Pattern 1: "BẠN TRẢ" or "Bạn trả" (highest priority - final amount paid)
-      /(?:BẠN TRẢ|Bạn trả|Bạn thanh toán|You paid)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      // Vietnamese patterns
+      /(?:BẠN\s+TRẢ|Bạn\s+trả|Bạn\s+thanh\s+toán)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /(?:TỔNG\s+CỘNG|Tổng\s+cộng)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*(?:TỔNG\s+CỘNG|Tổng\s+cộng))/i,
+      /(?:Tổng\s+thanh\s+toán)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
       
-      // Pattern 2: "Total Paid" (common in English receipts)
+      // English patterns
       /Total\s+Paid[:\s]+(?:VND\s+)?([\d,.]+)/i,
-      
-      // Pattern 3: Last "Tổng cộng" (Total)
-      /Tổng cộng[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Tổng cộng)/i,
-      
-      // Pattern 4: "Total" in English
-      /Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Total)/i,
-      
-      // Pattern 5: "Grand Total"
+      /You\s+paid[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /Total\s+Amount[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
       /Grand\s+Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /Final\s+Amount[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /Amount\s+Paid[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
       
-      // Pattern 6: Generic currency at the end (last resort)
+      // Generic patterns (last resort)
+      /Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Total)/i,
       /(?:VND|₫)\s*([\d,.]+)(?![\s\S]*(?:VND|₫)\s*[\d,.]+)/
     ];
     
@@ -701,36 +762,38 @@ function extractBillData(body, emailDate, threadId) {
       const match = cleanBody.match(pattern);
       if (match) {
         amountValue = match[1].replace(/[^\d]/g, '');
-        // Only accept reasonable amounts (> 1000 VND, < 100 million VND)
         const numericAmount = parseInt(amountValue);
+        
+        // Validate: reasonable amount (1k - 100M VND)
         if (numericAmount >= 1000 && numericAmount <= 100000000) {
           totalAmount = `₫${amountValue.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
-          console.log(`💰 Amount found (pattern: ${pattern}):`, totalAmount);
+          console.log(`💰 Amount found:`, totalAmount);
           break;
         }
       }
     }
 
     // ============================================
-    // ENHANCED STORE/SERVICE EXTRACTION
+    // COMPREHENSIVE STORE/SERVICE EXTRACTION
     // ============================================
     let storeName = null;
-    let billType = 'Unknown';
     
-    if (isFoodBill) {
-      // Extract restaurant name for food orders
+    if (billType === 'GrabFood') {
+      // Food order - extract restaurant name
       const storePatterns = [
-        // Pattern 1: "Đặt từ" with flexible ending
-        /Đặt từ[:\s]+([^]+?)(?:\s+(?:Giao đến|Hồ sơ|Chi tiết|Người dùng|Điểm đón|Delivery to|Profile))/i,
+        // Vietnamese patterns
+        /Đặt\s+từ[:\s]+([^]+?)(?:\s+(?:Giao\s+đến|Điểm\s+trả|Hồ\s+sơ|Chi\s+tiết|Người\s+dùng|Mã\s+đơn))/i,
+        /Nhà\s+hàng[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Địa\s+chỉ|Address)|\n|$)/i,
+        /Cửa\s+hàng[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Địa\s+chỉ|Address)|\n|$)/i,
         
-        // Pattern 2: "Order from"
-        /Order from[:\s]+([^]+?)(?:\s+(?:Deliver to|Profile|Details|User|Pick-up))/i,
+        // English patterns
+        /Order\s+from[:\s]+([^]+?)(?:\s+(?:Deliver\s+to|Drop-?off|Profile|Details|User|Order\s+ID))/i,
+        /Restaurant[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Address)|\n|$)/i,
+        /Merchant[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Address)|\n|$)/i,
+        /Store[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Address)|\n|$)/i,
         
-        // Pattern 3: Restaurant/Merchant/Store keyword
-        /(?:Merchant|Store|Restaurant|Nhà hàng)[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Địa chỉ|Address)|\n|$)/i,
-        
-        // Pattern 4: Between "Your Grab E-Receipt" and profile/delivery info
-        /Your Grab E-Receipt[^]*?GrabFood[^]*?([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:Hồ sơ|Profile|Giao đến|Deliver))/i,
+        // Generic pattern
+        /GrabFood[^]*?([A-Za-zÀ-ỹ0-9\s\-&.,()]{5,100})(?:\s+(?:Hồ\s+sơ|Profile|Giao\s+đến|Deliver))/i,
       ];
       
       for (const pattern of storePatterns) {
@@ -739,12 +802,13 @@ function extractBillData(body, emailDate, threadId) {
           storeName = match[1].trim()
             .replace(/\s+/g, ' ')
             .replace(/[:\-–—]+$/, '')
-            .replace(/^\d+\s+/, '') // Remove leading numbers
+            .replace(/^\d+\s+/, '')
+            .replace(/^[-\s]+|[-\s]+$/g, '')
             .substring(0, 100);
           
-          // Validate: should not be a common word or too short
+          // Validate: not a common word, reasonable length
           if (storeName.length > 3 && 
-              !storeName.match(/^(chi tiết|details|profile|hồ sơ|người dùng)$/i)) {
+              !storeName.match(/^(chi\s+tiết|details|profile|hồ\s+sơ|người\s+dùng|user|order|đơn\s+hàng)$/i)) {
             break;
           } else {
             storeName = null;
@@ -752,42 +816,25 @@ function extractBillData(body, emailDate, threadId) {
         }
       }
       
-      billType = 'GrabFood';
+    } else if (billType.includes('Bike') || billType.includes('Car') || billType === 'Grab Transport') {
+      // Transportation - extract route
+      storeName = serviceType || billType.replace('Grab', '');
       
-    } else if (isTransportBill) {
-      // IMPROVED: Extract specific service type for transportation
-      
-      // Check for specific service names
-      if (cleanBody.match(/\bBike\s+Plus\b/i)) {
-        storeName = 'GrabBike Plus';
-        billType = 'GrabBike';
-      } else if (cleanBody.includes('GrabBike') || cleanBody.match(/\bBike\b(?!\s+Plus)/i)) {
-        storeName = 'GrabBike';
-        billType = 'GrabBike';
-      } else if (cleanBody.includes('JustGrab')) {
-        storeName = 'JustGrab';
-        billType = 'GrabCar';
-      } else if (cleanBody.includes('GrabCar') || cleanBody.match(/\bCar\b/i)) {
-        storeName = 'GrabCar';
-        billType = 'GrabCar';
-      } else {
-        storeName = 'Grab Transportation';
-        billType = 'Grab Transport';
-      }
-      
-      // Try to extract route information - IMPROVED patterns
       const routePatterns = [
-        // Pattern 1: With unicode box-drawing characters (most common)
-        /⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s+(.+?)\s+\d+:\d+[AP]M\s+(.+?)\s+\d+:\d+[AP]M/,
+        // Pattern 1: Unicode box characters with times
+        /⋮[\s⋮]*([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}\s*[AP]M[\s⋮]*([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}\s*[AP]M/i,
         
-        // Pattern 2: Direct location pattern without dots
-        /\b([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}[AP]M\s+([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}[AP]M/,
+        // Pattern 2: Simple location with time
+        /\b([A-Za-zÀ-ỹ0-9\s,\-\.\/]{5,})\s+\d{1,2}:\d{2}\s*[AP]M\s+([A-Za-zÀ-ỹ0-9\s,\-\.\/]{5,})\s+\d{1,2}:\d{2}\s*[AP]M/i,
         
-        // Pattern 3: Simple from-to pattern
-        /(?:From|Từ)[:\s]+(.+?)\s+(?:To|Đến)[:\s]+(.+?)(?:\s+\d|$)/i,
+        // Pattern 3: Vietnamese pickup/dropoff
+        /(?:Điểm\s+đón|Pick-?up\s+point)[:\s]*([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}\s*[AP]M[^]*?(?:Điểm\s+trả|Điểm\s+đến|Drop-?off\s+point)[:\s]*([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}\s*[AP]M/i,
         
-        // Pattern 4: Điểm đón / Điểm đến pattern
-        /(?:Điểm đón|Pick-?up)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d+:\d+[AP]M[^]*?(?:Điểm đến|Drop-?off|Giao đến)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d+:\d+[AP]M/i
+        // Pattern 4: Simple from/to
+        /(?:From|Từ)[:\s]+([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+(?:To|Đến|→)[:\s]+([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)(?:\s+\d|$)/i,
+        
+        // Pattern 5: Your Trip section
+        /Your\s+Trip[^]*?([\d.]+)\s*km[^]*?(\d+)\s*min/i
       ];
       
       for (const pattern of routePatterns) {
@@ -805,7 +852,7 @@ function extractBillData(body, emailDate, threadId) {
             .replace(/[⋮\s]+$/, '')
             .substring(0, 50);
           
-          // Validate locations aren't just numbers or gibberish
+          // Validate
           if (from.length > 3 && to.length > 3 && 
               !from.match(/^[\d\s]+$/) && !to.match(/^[\d\s]+$/)) {
             storeName = `${storeName} (${from} → ${to})`;
@@ -814,37 +861,73 @@ function extractBillData(body, emailDate, threadId) {
         }
       }
       
-    } else if (isExpressBill) {
+    } else if (billType === 'GrabExpress') {
       storeName = 'GrabExpress';
-      billType = 'GrabExpress';
       
-      // Try to extract parcel info
-      const parcelMatch = cleanBody.match(/(?:Package|Parcel|Gói hàng)[:\s]+(.{10,50})/i);
-      if (parcelMatch) {
-        storeName = `GrabExpress (${parcelMatch[1].trim().substring(0, 40)})`;
+      // Extract parcel/package info
+      const parcelPatterns = [
+        /(?:Package|Parcel|Gói\s+hàng|Kiện\s+hàng)[:\s]+(.{10,60})/i,
+        /(?:Description|Mô\s+tả)[:\s]+(.{10,60})/i
+      ];
+      
+      for (const pattern of parcelPatterns) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          const detail = match[1].trim().substring(0, 50);
+          if (detail.length > 5) {
+            storeName = `GrabExpress (${detail})`;
+            break;
+          }
+        }
       }
       
-    } else if (isMartBill) {
+    } else if (billType === 'GrabMart') {
       storeName = 'GrabMart';
-      billType = 'GrabMart';
       
-      // Try to extract store name
-      const martMatch = cleanBody.match(/(?:GrabMart|GrabSupermarket)[^]*?([A-Za-z\s]+)(?:Store|Siêu thị)/i);
-      if (martMatch) {
-        storeName = `GrabMart - ${martMatch[1].trim()}`;
+      // Extract specific mart name
+      const martPatterns = [
+        /GrabMart\s*[-–—]\s*([A-Za-zÀ-ỹ0-9\s]+?)(?:\s+Store|\s+Siêu\s+thị|$)/i,
+        /(?:Store|Siêu\s+thị)[:\s]+([A-Za-zÀ-ỹ0-9\s]+)/i
+      ];
+      
+      for (const pattern of martPatterns) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          const martName = match[1].trim().substring(0, 40);
+          if (martName.length > 3) {
+            storeName = `GrabMart - ${martName}`;
+            break;
+          }
+        }
       }
       
-    } else if (isPayBill) {
+    } else if (billType === 'GrabPay') {
       storeName = 'GrabPay Transaction';
-      billType = 'GrabPay';
       
-    } else {
-      // Generic Grab service - try to detect type from subject or content
-      const serviceMatch = cleanBody.match(/Grab\s*([A-Za-z]+)/);
-      if (serviceMatch && serviceMatch[1].length > 1) {
-        const serviceName = serviceMatch[1];
-        storeName = `Grab${serviceName}`;
-        billType = `Grab${serviceName}`;
+      // Extract transaction recipient
+      const payPatterns = [
+        /(?:Payment\s+to|Thanh\s+toán\s+cho|Transfer\s+to|Chuyển\s+cho)[:\s]+(.{10,60})/i,
+        /(?:Recipient|Người\s+nhận)[:\s]+(.{5,40})/i
+      ];
+      
+      for (const pattern of payPatterns) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          const recipient = match[1].trim().substring(0, 50);
+          if (recipient.length > 3) {
+            storeName = `GrabPay → ${recipient}`;
+            break;
+          }
+        }
+      }
+    }
+
+    // Fallback: try to extract any Grab service name
+    if (!storeName) {
+      const genericMatch = cleanBody.match(/Grab([A-Za-z]+)/);
+      if (genericMatch && genericMatch[1].length > 1) {
+        storeName = `Grab${genericMatch[1]}`;
+        billType = `Grab${genericMatch[1]}`;
       } else {
         storeName = 'Grab Service';
         billType = 'Grab';
@@ -852,21 +935,22 @@ function extractBillData(body, emailDate, threadId) {
     }
 
     // ============================================
-    // ENHANCED ITEMS/DETAILS EXTRACTION
+    // COMPREHENSIVE ITEMS/DETAILS EXTRACTION
     // ============================================
     let itemsDetails = null;
     
-    if (isFoodBill) {
+    if (billType === 'GrabFood') {
       // Extract food items
       const itemsPatterns = [
-        // Pattern 1: Vietnamese "Số lượng:" section
-        /Số lượng:(.*?)(?:Tổng tạm tính|Subtotal|Cước phí|Delivery fee|Phí dịch vụ)/is,
+        // Vietnamese
+        /Số\s+lượng:(.*?)(?:Tổng\s+tạm\s+tính|Subtotal|Cước\s+phí|Delivery\s+fee|Phí\s+dịch\s+vụ|Service\s+fee)/is,
+        /Chi\s+tiết[^]*?((?:\d+x\s+[^₫\d]+?(?:₫|VND)?\s*\d+[,.]?\d*\s*)+)(?:Tổng|Cước)/is,
         
-        // Pattern 2: English "Quantity:" or "Items:"
-        /(?:Quantity|Items):(.*?)(?:Subtotal|Delivery fee|Service fee)/is,
+        // English
+        /(?:Quantity|Items|Order\s+details):(.*?)(?:Subtotal|Delivery\s+fee|Service\s+fee|Total)/is,
         
-        // Pattern 3: Between "Chi tiết" and "Tổng"
-        /Chi tiết[^]*?((?:\d+x\s+[^₫\d]+?(?:₫|VND)?\s*\d+[,.]?\d*\s*)+)(?:Tổng|Cước)/is,
+        // Generic item list
+        /((?:\d+x\s+.+?(?:₫|VND)?\s*[\d,]+\s*){1,})/is
       ];
       
       for (const pattern of itemsPatterns) {
@@ -874,115 +958,151 @@ function extractBillData(body, emailDate, threadId) {
         if (match) {
           const itemsText = match[1];
           
-          // Extract items with quantities - more flexible regex
+          // Extract individual items
           let foodMatches = itemsText.match(/(\d+x\s+.+?)(?=\s*₫?\s*[\d,]+(?:\s*₫|VND)?|\d+x\s+|$)/g);
           
           if (foodMatches && foodMatches.length > 0) {
             foodMatches = foodMatches.map(item => {
               return item
-                .replace(/\d+x\s+\d+\s+/, match => match.replace(/\d+\s+$/, ''))
-                .replace(/\s*₫?\s*[\d,]+\s*(?:₫|VND)?\s*$/, '') // Remove trailing prices
+                .replace(/\s*₫?\s*[\d,]+\s*(?:₫|VND)?\s*$/, '')
                 .trim()
                 .replace(/\s+/g, ' ')
                 .substring(0, 150);
-            }).filter(item => item.length > 2);
+            }).filter(item => item.length > 2 && item !== '');
             
-            itemsDetails = foodMatches.slice(0, 20).join(', ');
-            break;
+            if (foodMatches.length > 0) {
+              itemsDetails = foodMatches.slice(0, 20).join(', ');
+              break;
+            }
           }
         }
       }
       
-      // Fallback: look for common food keywords
+      // Fallback: look for food keywords
       if (!itemsDetails) {
-        const foodWords = cleanBody.match(/(?:cơm|phở|bún|mì|bánh|canh|soup|rice|noodle|chicken|beef|pork|fish|vegetable|salad|pizza|burger)[^₫\d]{1,50}/gi);
+        const foodKeywords = /(?:cơm|phở|bún|mì|bánh|canh|soup|rice|noodle|chicken|beef|pork|fish|vegetable|salad|pizza|burger|coffee|trà|tea)[^₫\d]{1,60}/gi;
+        const foodWords = cleanBody.match(foodKeywords);
         if (foodWords && foodWords.length > 0) {
-          itemsDetails = foodWords.slice(0, 5).map(w => w.trim()).join(', ');
+          itemsDetails = foodWords.slice(0, 5).map(w => w.trim()).filter(w => w.length > 2).join(', ');
         }
       }
       
-    } else if (isTransportBill) {
-      // Extract trip details for transportation - IMPROVED
+    } else if (billType.includes('Bike') || billType.includes('Car') || billType === 'Grab Transport') {
+      // Extract trip details
       const details = [];
       
       // Distance
-      const distanceMatch = cleanBody.match(/([\d.]+)\s*km/i);
-      if (distanceMatch) {
-        details.push(`${distanceMatch[1]} km`);
+      const distanceMatches = [
+        /([\d.]+)\s*km/i,
+        /Distance[:\s]+([\d.]+)/i,
+        /Khoảng\s+cách[:\s]+([\d.]+)/i
+      ];
+      for (const pattern of distanceMatches) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          details.push(`${match[1]} km`);
+          break;
+        }
       }
       
       // Duration
-      const durationMatch = cleanBody.match(/(\d+)\s*min(?:s|utes)?/i);
-      if (durationMatch) {
-        details.push(`${durationMatch[1]} mins`);
+      const durationMatches = [
+        /(\d+)\s*min(?:s|utes)?/i,
+        /Duration[:\s]+(\d+)/i,
+        /Thời\s+gian[:\s]+(\d+)/i
+      ];
+      for (const pattern of durationMatches) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          details.push(`${match[1]} mins`);
+          break;
+        }
       }
       
-      // Booking ID
-      const bookingMatch = cleanBody.match(/(?:Booking\s+ID|Mã đặt xe)[:\s]*([A-Z0-9\-]+)/i);
-      if (bookingMatch) {
-        details.push(`ID: ${bookingMatch[1]}`);
-      }
-      
-      // Driver compliments (extract compliment text)
-      const complimentMatch = cleanBody.match(/Compliments\s+for\s+driver\s+([A-Za-z\s]+?)(?:\s+Breakdown|\s+Chi tiết)/i);
-      if (complimentMatch) {
-        details.push(`"${complimentMatch[1].trim()}"`);
+      // Driver rating/compliment
+      const complimentMatches = [
+        /Compliments?\s+for\s+driver[:\s]+([A-Za-z\s]+?)(?:\s+Breakdown|\s+Chi\s+tiết|$)/i,
+        /Driver\s+rating[:\s]+([\d.]+)/i,
+        /Đánh\s+giá\s+tài\s+xế[:\s]+([\d.]+)/i
+      ];
+      for (const pattern of complimentMatches) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          details.push(`Driver: ${match[1].trim()}`);
+          break;
+        }
       }
       
       // Rating
-      const ratingMatch = cleanBody.match(/(\d\.\d)\s*(?:Lời khen|Review|Rating|Compliments)/i);
+      const ratingMatch = cleanBody.match(/(\d\.\d)\s*(?:stars?|⭐)/i);
       if (ratingMatch) {
         details.push(`${ratingMatch[1]}⭐`);
       }
       
-      // Vehicle fleet/type
-      const fleetMatch = cleanBody.match(/Vehicle\s+fleet[:\s]+([A-Z\s\-]+?)(?:\s+Total|\s+Tổng|$)/i);
-      if (fleetMatch) {
-        const fleet = fleetMatch[1].trim().substring(0, 30);
-        if (fleet.length > 5) {
-          details.push(`Fleet: ${fleet}`);
+      // Fare breakdown
+      const fareMatch = cleanBody.match(/(?:Fare|Giá\s+cước)[:\s]+(?:VND\s+)?([\d,]+)/i);
+      if (fareMatch) {
+        details.push(`Fare ${fareMatch[1]}`);
+      }
+      
+      // Vehicle info
+      const vehicleMatch = cleanBody.match(/(?:Vehicle|fleet|Loại\s+xe)[:\s]+([A-Z0-9\s\-]+?)(?:\s+Total|\s+Tổng|$)/i);
+      if (vehicleMatch) {
+        const vehicle = vehicleMatch[1].trim().substring(0, 30);
+        if (vehicle.length > 3) {
+          details.push(`Vehicle: ${vehicle}`);
         }
       }
       
       itemsDetails = details.length > 0 ? details.join(' • ') : 'Trip details';
       
-    } else if (isExpressBill) {
-      // Extract delivery details
+    } else if (billType === 'GrabExpress') {
+      // Delivery details
       const details = [];
       
       const weightMatch = cleanBody.match(/([\d.]+)\s*kg/i);
-      if (weightMatch) {
-        details.push(`${weightMatch[1]} kg`);
-      }
+      if (weightMatch) details.push(`${weightMatch[1]} kg`);
       
       const distanceMatch = cleanBody.match(/([\d.]+)\s*km/i);
-      if (distanceMatch) {
-        details.push(`${distanceMatch[1]} km`);
-      }
+      if (distanceMatch) details.push(`${distanceMatch[1]} km`);
+      
+      const typeMatch = cleanBody.match(/(?:Package\s+type|Loại\s+gói)[:\s]+([A-Za-z\s]+)/i);
+      if (typeMatch) details.push(typeMatch[1].trim());
       
       itemsDetails = details.length > 0 ? details.join(' • ') : 'Delivery details';
       
-    } else if (isMartBill) {
-      // Try to extract item count
-      const itemCountMatch = cleanBody.match(/(\d+)\s*(?:items?|sản phẩm)/i);
+    } else if (billType === 'GrabMart') {
+      // Item count
+      const itemCountMatch = cleanBody.match(/(\d+)\s*(?:items?|sản\s+phẩm|món)/i);
       if (itemCountMatch) {
         itemsDetails = `${itemCountMatch[1]} items`;
       } else {
         itemsDetails = 'Grocery items';
       }
       
-    } else if (isPayBill) {
-      // Extract transaction type
-      const transactionMatch = cleanBody.match(/(?:Payment for|Thanh toán cho)\s+(.{10,50})/i);
-      if (transactionMatch) {
-        itemsDetails = transactionMatch[1].trim().substring(0, 100);
-      } else {
+    } else if (billType === 'GrabPay') {
+      // Transaction details
+      const transactionMatches = [
+        /(?:Payment\s+for|Thanh\s+toán\s+cho)[:\s]+(.{10,60})/i,
+        /(?:Transaction\s+type|Loại\s+giao\s+dịch)[:\s]+([A-Za-z\s]+)/i,
+        /(?:Description|Mô\s+tả)[:\s]+(.{10,60})/i
+      ];
+      
+      for (const pattern of transactionMatches) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          itemsDetails = match[1].trim().substring(0, 100);
+          break;
+        }
+      }
+      
+      if (!itemsDetails) {
         itemsDetails = 'Payment transaction';
       }
     }
 
     // ============================================
-    // BUILD RESULT
+    // BUILD RESULT WITH VALIDATION
     // ============================================
     const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
     
@@ -1002,7 +1122,7 @@ function extractBillData(body, emailDate, threadId) {
     console.log('   🏪 Store/Service:', storeName);
     console.log('   📝 Details:', itemsDetails);
 
-    // Validation: Need at least date + (amount OR store)
+    // Enhanced validation: Need at least date + (amount OR store)
     if (formattedDate && (totalAmount || storeName)) {
       return {
         datetime: formattedDate,
@@ -1013,11 +1133,12 @@ function extractBillData(body, emailDate, threadId) {
         total: totalAmount || 'Amount not found',
         link: emailLink,
         type: billType,
+        serviceType: serviceType,
         valid: true
       };
     }
 
-    console.log('❌ Validation failed - need at least date + (amount OR store)');
+    console.log('❌ Validation failed - insufficient data');
     console.log('   Date:', formattedDate);
     console.log('   Amount:', totalAmount);
     console.log('   Store:', storeName);
