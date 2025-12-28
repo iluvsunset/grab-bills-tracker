@@ -634,14 +634,20 @@ function extractBillData(body, emailDate, threadId) {
                        cleanBody.includes('Số lượng:') ||
                        cleanBody.includes('Tổng tạm tính') ||
                        cleanBody.includes('Cước phí giao hàng') ||
-                       cleanBody.includes('Your Grab E-Receipt') && cleanBody.includes('Chúc bạn ngon miệng');
+                       (cleanBody.includes('Your Grab E-Receipt') && cleanBody.includes('Chúc bạn ngon miệng'));
     
-    const isTransportBill = cleanBody.includes('GrabBike') || 
-                           cleanBody.includes('GrabCar') || 
-                           cleanBody.includes('Giá theo công-tơ-mét') ||
-                           cleanBody.includes('Fare by meter') ||
-                           cleanBody.includes('Chuyến đi của bạn') ||
-                           cleanBody.includes('Your trip');
+    // IMPROVED: Better transport detection including "Bike Plus", "Car", etc.
+    const isTransportBill = cleanBody.match(/\b(?:GrabBike|Bike Plus|GrabCar|JustGrab|Car|Bike)\b/i) &&
+                           (cleanBody.includes('Hope you enjoyed your ride') ||
+                            cleanBody.includes('Hy vọng bạn đã có một chuyến đi vui vẻ') ||
+                            cleanBody.includes('Giá theo công-tơ-mét') ||
+                            cleanBody.includes('Fare by meter') ||
+                            cleanBody.includes('Fare ') ||
+                            cleanBody.includes('Breakdown') ||
+                            cleanBody.includes('Your Trip') ||
+                            cleanBody.includes('Chuyến đi của bạn') ||
+                            cleanBody.includes('Vehicle fleet') ||
+                            cleanBody.includes('Picked up on'));
     
     // NEW: Detect other Grab services
     const isExpressBill = cleanBody.includes('GrabExpress') || 
@@ -675,16 +681,19 @@ function extractBillData(body, emailDate, threadId) {
       // Pattern 1: "BẠN TRẢ" or "Bạn trả" (highest priority - final amount paid)
       /(?:BẠN TRẢ|Bạn trả|Bạn thanh toán|You paid)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
       
-      // Pattern 2: Last "Tổng cộng" (Total) - use lookbehind to get the last one
+      // Pattern 2: "Total Paid" (common in English receipts)
+      /Total\s+Paid[:\s]+(?:VND\s+)?([\d,.]+)/i,
+      
+      // Pattern 3: Last "Tổng cộng" (Total)
       /Tổng cộng[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Tổng cộng)/i,
       
-      // Pattern 3: "Total" in English
+      // Pattern 4: "Total" in English
       /Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Total)/i,
       
-      // Pattern 4: "Grand Total"
+      // Pattern 5: "Grand Total"
       /Grand\s+Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
       
-      // Pattern 5: Generic currency at the end (last resort)
+      // Pattern 6: Generic currency at the end (last resort)
       /(?:VND|₫)\s*([\d,.]+)(?![\s\S]*(?:VND|₫)\s*[\d,.]+)/
     ];
     
@@ -746,11 +755,19 @@ function extractBillData(body, emailDate, threadId) {
       billType = 'GrabFood';
       
     } else if (isTransportBill) {
-      // Extract service type for transportation
-      if (cleanBody.includes('GrabBike')) {
+      // IMPROVED: Extract specific service type for transportation
+      
+      // Check for specific service names
+      if (cleanBody.match(/\bBike\s+Plus\b/i)) {
+        storeName = 'GrabBike Plus';
+        billType = 'GrabBike';
+      } else if (cleanBody.includes('GrabBike') || cleanBody.match(/\bBike\b(?!\s+Plus)/i)) {
         storeName = 'GrabBike';
         billType = 'GrabBike';
-      } else if (cleanBody.includes('GrabCar')) {
+      } else if (cleanBody.includes('JustGrab')) {
+        storeName = 'JustGrab';
+        billType = 'GrabCar';
+      } else if (cleanBody.includes('GrabCar') || cleanBody.match(/\bCar\b/i)) {
         storeName = 'GrabCar';
         billType = 'GrabCar';
       } else {
@@ -758,25 +775,40 @@ function extractBillData(body, emailDate, threadId) {
         billType = 'Grab Transport';
       }
       
-      // Try to extract route information
+      // Try to extract route information - IMPROVED patterns
       const routePatterns = [
-        // Pattern 1: With unicode box-drawing characters
+        // Pattern 1: With unicode box-drawing characters (most common)
         /⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s+(.+?)\s+\d+:\d+[AP]M\s+(.+?)\s+\d+:\d+[AP]M/,
         
-        // Pattern 2: Simple from-to pattern
+        // Pattern 2: Direct location pattern without dots
+        /\b([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}[AP]M\s+([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d{1,2}:\d{2}[AP]M/,
+        
+        // Pattern 3: Simple from-to pattern
         /(?:From|Từ)[:\s]+(.+?)\s+(?:To|Đến)[:\s]+(.+?)(?:\s+\d|$)/i,
         
-        // Pattern 3: Điểm đón / Giao đến pattern
-        /Điểm đón[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.]+?)\s+\d+:\d+[AP]M[^]*?(?:Điểm đến|Giao đến)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.]+?)\s+\d+:\d+[AP]M/i
+        // Pattern 4: Điểm đón / Điểm đến pattern
+        /(?:Điểm đón|Pick-?up)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d+:\d+[AP]M[^]*?(?:Điểm đến|Drop-?off|Giao đến)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/]+?)\s+\d+:\d+[AP]M/i
       ];
       
       for (const pattern of routePatterns) {
         const routeMatch = cleanBody.match(pattern);
         if (routeMatch && routeMatch[1] && routeMatch[2]) {
-          const from = routeMatch[1].trim().substring(0, 50);
-          const to = routeMatch[2].trim().substring(0, 50);
-          if (from.length > 3 && to.length > 3) {
-            storeName = `${billType} (${from} → ${to})`;
+          let from = routeMatch[1].trim()
+            .replace(/\s+/g, ' ')
+            .replace(/^[⋮\s]+/, '')
+            .replace(/[⋮\s]+$/, '')
+            .substring(0, 50);
+          
+          let to = routeMatch[2].trim()
+            .replace(/\s+/g, ' ')
+            .replace(/^[⋮\s]+/, '')
+            .replace(/[⋮\s]+$/, '')
+            .substring(0, 50);
+          
+          // Validate locations aren't just numbers or gibberish
+          if (from.length > 3 && to.length > 3 && 
+              !from.match(/^[\d\s]+$/) && !to.match(/^[\d\s]+$/)) {
+            storeName = `${storeName} (${from} → ${to})`;
             break;
           }
         }
@@ -807,11 +839,12 @@ function extractBillData(body, emailDate, threadId) {
       billType = 'GrabPay';
       
     } else {
-      // Generic Grab service
+      // Generic Grab service - try to detect type from subject or content
       const serviceMatch = cleanBody.match(/Grab\s*([A-Za-z]+)/);
-      if (serviceMatch) {
-        storeName = `Grab${serviceMatch[1]}`;
-        billType = `Grab${serviceMatch[1]}`;
+      if (serviceMatch && serviceMatch[1].length > 1) {
+        const serviceName = serviceMatch[1];
+        storeName = `Grab${serviceName}`;
+        billType = `Grab${serviceName}`;
       } else {
         storeName = 'Grab Service';
         billType = 'Grab';
@@ -869,7 +902,7 @@ function extractBillData(body, emailDate, threadId) {
       }
       
     } else if (isTransportBill) {
-      // Extract trip details for transportation
+      // Extract trip details for transportation - IMPROVED
       const details = [];
       
       // Distance
@@ -884,31 +917,31 @@ function extractBillData(body, emailDate, threadId) {
         details.push(`${durationMatch[1]} mins`);
       }
       
-      // Driver name
-      const driverMatch = cleanBody.match(/(?:Cảm ơn bạn đã thực hiện chuyến đi cùng|Thank you for riding with|Driver)\s+([^.]+?)\s*\./i);
-      if (driverMatch) {
-        const driverName = driverMatch[1].trim().replace(/\s+/g, ' ').substring(0, 50);
-        if (driverName.length > 2) {
-          details.push(`Driver: ${driverName}`);
-        }
+      // Booking ID
+      const bookingMatch = cleanBody.match(/(?:Booking\s+ID|Mã đặt xe)[:\s]*([A-Z0-9\-]+)/i);
+      if (bookingMatch) {
+        details.push(`ID: ${bookingMatch[1]}`);
+      }
+      
+      // Driver compliments (extract compliment text)
+      const complimentMatch = cleanBody.match(/Compliments\s+for\s+driver\s+([A-Za-z\s]+?)(?:\s+Breakdown|\s+Chi tiết)/i);
+      if (complimentMatch) {
+        details.push(`"${complimentMatch[1].trim()}"`);
       }
       
       // Rating
-      const ratingMatch = cleanBody.match(/(\d\.\d)\s*(?:Lời khen|Review|Rating)/i);
+      const ratingMatch = cleanBody.match(/(\d\.\d)\s*(?:Lời khen|Review|Rating|Compliments)/i);
       if (ratingMatch) {
-        details.push(`Rating: ${ratingMatch[1]}⭐`);
+        details.push(`${ratingMatch[1]}⭐`);
       }
       
-      // Booking code
-      const codeMatch = cleanBody.match(/(?:Mã đặt xe|Booking code|Order code)[:\s]*([A-Z0-9\-]+)/i);
-      if (codeMatch) {
-        details.push(`Code: ${codeMatch[1]}`);
-      }
-      
-      // Vehicle type
-      const vehicleMatch = cleanBody.match(/(?:Vehicle|Xe)[:\s]+([\w\s]+)/i);
-      if (vehicleMatch) {
-        details.push(`Vehicle: ${vehicleMatch[1].trim()}`);
+      // Vehicle fleet/type
+      const fleetMatch = cleanBody.match(/Vehicle\s+fleet[:\s]+([A-Z\s\-]+?)(?:\s+Total|\s+Tổng|$)/i);
+      if (fleetMatch) {
+        const fleet = fleetMatch[1].trim().substring(0, 30);
+        if (fleet.length > 5) {
+          details.push(`Fleet: ${fleet}`);
+        }
       }
       
       itemsDetails = details.length > 0 ? details.join(' • ') : 'Trip details';
