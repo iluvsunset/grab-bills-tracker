@@ -50,6 +50,7 @@ enableIndexedDbPersistence(db).catch((err) => {
 
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+provider.addScope('https://www.googleapis.com/auth/gmail.modify'); 
 
 // ============================================
 // DIAGNOSTIC: Test Firestore Connection
@@ -483,8 +484,7 @@ async function syncGmailBills(token) {
     showToast('🔄 Syncing Gmail receipts...');
     
     // ============================================
-    // FETCH ALL UNPROCESSED EMAILS WITH PAGINATION
-    // EXCLUDES EMAILS ALREADY LABELED "Processed"
+    // FETCH ALL GRAB RECEIPTS (Food + Transportation)
     // ============================================
     let allMessages = [];
     let pageToken = null;
@@ -494,8 +494,8 @@ async function syncGmailBills(token) {
       pageCount++;
       console.log(`📧 Fetching page ${pageCount}...`);
       
-      // Query excludes emails with "Processed" label
-      let url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Your Grab E-Receipt" -label:Processed&maxResults=100';
+      // Updated query to include ALL Grab receipts
+      let url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:no-reply@grab.com subject:"Grab E-Receipt" -label:Processed&maxResults=100';
       if (pageToken) {
         url += `&pageToken=${pageToken}`;
       }
@@ -516,9 +516,9 @@ async function syncGmailBills(token) {
       
       showToast(`Found ${allMessages.length} unprocessed receipts...`);
       
-    } while (pageToken); // Continue until no more pages
+    } while (pageToken);
     
-    console.log(`✅ Total found: ${allMessages.length} unprocessed GrabFood emails`);
+    console.log(`✅ Total found: ${allMessages.length} unprocessed Grab emails`);
     
     if (allMessages.length === 0) {
       showToast('✓ No new receipts to sync. All up to date!');
@@ -610,62 +610,203 @@ async function syncGmailBills(token) {
 // Extract bill data from email content
 function extractBillData(body, emailDate, threadId) {
   try {
-    // IMPROVED: Strip <style> tags and their content first, then clean HTML
+    // Clean the body
     let cleanBody = body
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // REMOVE <style> blocks
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // REMOVE <script> blocks
-      .replace(/<[^>]*>/g, ' ') // Remove remaining HTML tags
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
-      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/\s+/g, ' ')
       .trim();
 
-    // DEBUG: Log first 1000 chars AFTER cleaning
     console.log('📧 Email preview:', cleanBody.substring(0, 1000));
 
-    // ... rest of your extraction code stays the same
-    const amountMatch = cleanBody.match(/BẠN TRẢ\s+([\d,.]+)(?:₫|VND)/) || 
-                        cleanBody.match(/Tổng cộng\s+([\d,.]+)(?:₫|VND)/);
+    // ============================================
+    // DETECT BILL TYPE: Food or Transportation
+    // ============================================
+    const isFoodBill = cleanBody.includes('GrabFood') || 
+                       cleanBody.includes('Đặt từ') || 
+                       cleanBody.includes('Order from') ||
+                       cleanBody.includes('Số lượng:');
     
-    let storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+(?:[A-ZĐÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ][a-zđáàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ]+\s+)*Giao đến/);
+    const isTransportBill = cleanBody.includes('GrabBike') || 
+                           cleanBody.includes('GrabCar') || 
+                           cleanBody.includes('Giá theo công-tơ-mét') ||
+                           cleanBody.includes('Fare by meter') ||
+                           cleanBody.includes('Chuyến đi của bạn');
     
-    if (!storeMatch) {
-      storeMatch = cleanBody.match(/Đặt từ\s+([^]+?)\s+Hồ sơ/);
+    console.log('🔍 Bill Type Detection:', { isFoodBill, isTransportBill });
+
+    // ============================================
+    // EXTRACT AMOUNT (Works for both types)
+    // ============================================
+    let totalAmount = null;
+    let amountValue = null;
+    
+    // Try multiple patterns
+    const amountPatterns = [
+      /(?:BẠN TRẢ|Bạn trả|Bạn thanh toán|You paid)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /Tổng cộng[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/gi, // Use 'g' to get last match
+      /Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /(?:VND|₫)\s*([\d,.]+)/g
+    ];
+    
+    for (const pattern of amountPatterns) {
+      if (pattern.global) {
+        // For global patterns, get the LAST match (usually the final total)
+        const matches = [...cleanBody.matchAll(pattern)];
+        if (matches.length > 0) {
+          const lastMatch = matches[matches.length - 1];
+          amountValue = lastMatch[1].replace(/[^\d]/g, '');
+          totalAmount = `₫${amountValue.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+          console.log(`💰 Amount found (pattern: last ${pattern}):`, totalAmount);
+          break;
+        }
+      } else {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          amountValue = match[1].replace(/[^\d]/g, '');
+          totalAmount = `₫${amountValue.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+          console.log(`💰 Amount found (pattern: ${pattern}):`, totalAmount);
+          break;
+        }
+      }
     }
+
+    // ============================================
+    // EXTRACT STORE/SERVICE TYPE
+    // ============================================
+    let storeName = null;
+    let billType = 'Unknown';
     
-    const itemsSection = cleanBody.match(/Số lượng:(.*?)Tổng tạm tính/s);
-let foodMatches = null;
+    if (isFoodBill) {
+      // Extract restaurant name for food orders
+      const storePatterns = [
+        /Đặt từ[:\s]+([^Giao đến|Hồ sơ|Chi tiết|Người dùng]+?)(?:\s+(?:Giao đến|Hồ sơ|Chi tiết|Người dùng))/i,
+        /Order from[:\s]+([^Deliver to|Profile|Details|User]+?)(?:\s+(?:Deliver to|Profile|Details|User))/i,
+        /(?:Merchant|Store|Restaurant)[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+[A-Z]|\n|$)/i,
+      ];
+      
+      for (const pattern of storePatterns) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          storeName = match[1].trim()
+            .replace(/\s+/g, ' ')
+            .replace(/[:\-–—]+$/, '')
+            .substring(0, 100);
+          break;
+        }
+      }
+      
+      billType = 'GrabFood';
+      
+    } else if (isTransportBill) {
+      // Extract service type for transportation
+      if (cleanBody.includes('GrabBike')) {
+        storeName = 'GrabBike';
+        billType = 'GrabBike';
+      } else if (cleanBody.includes('GrabCar')) {
+        storeName = 'GrabCar';
+        billType = 'GrabCar';
+      } else {
+        storeName = 'Grab Transportation';
+        billType = 'Grab Transport';
+      }
+      
+      // Try to extract route information
+      const routeMatch = cleanBody.match(/⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s*⋮\s+(.+?)\s+\d+:\d+[AP]M\s+(.+?)\s+\d+:\d+[AP]M/);
+      if (routeMatch) {
+        const from = routeMatch[1].trim().substring(0, 50);
+        const to = routeMatch[2].trim().substring(0, 50);
+        storeName = `${storeName} (${from} → ${to})`;
+      }
+    }
 
-if (itemsSection) {
-  const itemsText = itemsSection[1];
-  
-  // Improved regex: Capture lines starting with "number x"
-  // Handles: "1x Item Name 99000₫" or "1x 1 item name 99000₫"
-  foodMatches = itemsText.match(/(\d+x\s+.+?)(?=\s+\d+(?:₫|VND))/g);
-  
-  if (foodMatches) {
-    foodMatches = foodMatches.map(item => {
-      // Clean up: remove extra whitespace and numbers after "x"
-      return item
-        .replace(/\d+x\s+\d+\s+/, match => match.replace(/\d+\s+$/, '')) // Remove number after "1x "
-        .trim()
-        .replace(/\s+/g, ' ');
-    });
-  }
-}
-
-    const totalAmount = amountMatch ? (amountMatch[0].includes('₫') ? '₫ ' : 'VND ') + amountMatch[1] : null;
-    const storeName = storeMatch ? storeMatch[1].trim() : null;
-    const foodItems = foodMatches ? foodMatches.join(", ") : null;
+    // ============================================
+    // EXTRACT ITEMS/DETAILS
+    // ============================================
+    let itemsDetails = null;
     
-    // DEBUG: Show what was extracted
-    console.log('💰 Amount:', totalAmount);
-    console.log('🏪 Store:', storeName);
-    console.log('🍔 Items:', foodItems);
+    if (isFoodBill) {
+      // Extract food items
+      const itemsPatterns = [
+        /Số lượng:(.*?)(?:Tổng tạm tính|Subtotal|Cước phí|Delivery fee)/is,
+        /(?:Quantity|Items):(.*?)(?:Subtotal|Delivery fee|Service fee)/is,
+      ];
+      
+      for (const pattern of itemsPatterns) {
+        const match = cleanBody.match(pattern);
+        if (match) {
+          const itemsText = match[1];
+          let foodMatches = itemsText.match(/(\d+x\s+[^₫\d]+?)(?=\s*₫?\s*\d+|$)/g);
+          
+          if (foodMatches) {
+            foodMatches = foodMatches.map(item => {
+              return item
+                .replace(/\d+x\s+\d+\s+/, match => match.replace(/\d+\s+$/, ''))
+                .trim()
+                .replace(/\s+/g, ' ')
+                .substring(0, 150);
+            }).filter(item => item.length > 2);
+            
+            itemsDetails = foodMatches.slice(0, 20).join(', ');
+          }
+          break;
+        }
+      }
+      
+      // Fallback: look for common food keywords
+      if (!itemsDetails) {
+        const foodWords = cleanBody.match(/(?:cơm|phở|bún|mì|canh|soup|rice|noodle|chicken|beef|pork|fish)[^₫\d]{1,50}/gi);
+        if (foodWords && foodWords.length > 0) {
+          itemsDetails = foodWords.slice(0, 5).join(', ');
+        }
+      }
+      
+    } else if (isTransportBill) {
+      // Extract trip details for transportation
+      const details = [];
+      
+      // Distance
+      const distanceMatch = cleanBody.match(/([\d.]+)\s*km/i);
+      if (distanceMatch) {
+        details.push(`${distanceMatch[1]} km`);
+      }
+      
+      // Duration
+      const durationMatch = cleanBody.match(/(\d+)\s*mins?/i);
+      if (durationMatch) {
+        details.push(`${durationMatch[1]} mins`);
+      }
+      
+      // Driver name
+      const driverMatch = cleanBody.match(/(?:Cảm ơn bạn đã thực hiện chuyến đi cùng|Thank you for riding with)\s+([^.]+)\s*\./i);
+      if (driverMatch) {
+        details.push(`Driver: ${driverMatch[1].trim()}`);
+      }
+      
+      // Rating
+      const ratingMatch = cleanBody.match(/(\d\.\d)\s*(?:Lời khen|Review)/i);
+      if (ratingMatch) {
+        details.push(`Rating: ${ratingMatch[1]}⭐`);
+      }
+      
+      // Booking code
+      const codeMatch = cleanBody.match(/Mã đặt xe:\s*([A-Z0-9\-]+)/i);
+      if (codeMatch) {
+        details.push(`Code: ${codeMatch[1]}`);
+      }
+      
+      itemsDetails = details.length > 0 ? details.join(' • ') : 'Trip details';
+    }
 
+    // ============================================
+    // BUILD RESULT
+    // ============================================
     const emailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
     
     const yyyy = emailDate.getFullYear();
@@ -677,24 +818,37 @@ if (itemsSection) {
     const date = `${yyyy}-${mm}-${dd}`;
     const month = `${yyyy}-${mm}`;
 
-    // More lenient validation - save if we have at least date and amount OR store
+    // Debug output
+    console.log('📋 Extraction Results:');
+    console.log('   Type:', billType);
+    console.log('   💰 Amount:', totalAmount);
+    console.log('   🏪 Store/Service:', storeName);
+    console.log('   📝 Details:', itemsDetails);
+
+    // Validation: Need at least date + (amount OR store)
     if (formattedDate && (totalAmount || storeName)) {
       return {
         datetime: formattedDate,
         date: date,
         month: month,
-        store: storeName || 'Unknown Store',
-        items: foodItems || 'Items not found',
+        store: storeName || 'Unknown Service',
+        items: itemsDetails || 'Details not available',
         total: totalAmount || 'Amount not found',
         link: emailLink,
+        type: billType, // NEW: Add bill type
         valid: true
       };
     }
 
-    console.log('❌ Validation failed - missing critical data');
+    console.log('❌ Validation failed - need at least date + (amount OR store)');
+    console.log('   Date:', formattedDate);
+    console.log('   Amount:', totalAmount);
+    console.log('   Store:', storeName);
+    
     return { valid: false };
+    
   } catch (error) {
-    console.error('Error extracting bill data:', error);
+    console.error('❌ Error extracting bill data:', error);
     return { valid: false };
   }
 }
@@ -721,9 +875,11 @@ async function saveBillsToFirestore(bills) {
           items: bill.items,
           total: bill.total,
           link: bill.link,
+          type: bill.type || 'Unknown', // ADD THIS
           createdAt: new Date().toISOString()
         });
         savedCount++;
+        console.log(`✅ Saved: ${bill.type} - ${bill.store} - ${bill.total}`);
       } else {
         console.log(`⏭️  Duplicate skipped: ${bill.store} - ${bill.datetime}`);
       }
@@ -741,70 +897,97 @@ async function labelProcessedEmails(token, bills) {
   try {
     console.log('🏷️  Labeling processed emails...');
     
-    // Get or create "Processed" label
-    const labelsResponse = await fetch(
-      'https://gmail.googleapis.com/gmail/v1/users/me/labels',
-      {
-        headers: { 'Authorization': `Bearer ${token}` }
-      }
-    );
-    
-    const labelsData = await labelsResponse.json();
-    let processedLabelId = labelsData.labels?.find(l => l.name === 'Processed')?.id;
-    
-    // Create label if it doesn't exist
-    if (!processedLabelId) {
-      console.log('Creating "Processed" label...');
-      const createResponse = await fetch(
+    // Check if we have the modify scope
+    try {
+      // Get or create "Processed" label
+      const labelsResponse = await fetch(
         'https://gmail.googleapis.com/gmail/v1/users/me/labels',
         {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            name: 'Processed',
-            labelListVisibility: 'labelShow',
-            messageListVisibility: 'show'
-          })
+          headers: { 'Authorization': `Bearer ${token}` }
         }
       );
       
-      const newLabel = await createResponse.json();
-      processedLabelId = newLabel.id;
-      console.log('✅ Created "Processed" label');
-    }
-    
-    // Label all processed messages
-    let labeledCount = 0;
-    for (const bill of bills) {
-      if (bill.messageId) {
-        try {
-          await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${bill.messageId}/modify`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                addLabelIds: [processedLabelId]
-              })
+      if (!labelsResponse.ok) {
+        throw new Error(`Failed to fetch labels: ${labelsResponse.status}`);
+      }
+      
+      const labelsData = await labelsResponse.json();
+      let processedLabelId = labelsData.labels?.find(l => l.name === 'Processed')?.id;
+      
+      // Create label if it doesn't exist
+      if (!processedLabelId) {
+        console.log('Creating "Processed" label...');
+        const createResponse = await fetch(
+          'https://gmail.googleapis.com/gmail/v1/users/me/labels',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              name: 'Processed',
+              labelListVisibility: 'labelShow',
+              messageListVisibility: 'show'
+            })
+          }
+        );
+        
+        if (!createResponse.ok) {
+          const errorData = await createResponse.json();
+          throw new Error(`Failed to create label: ${createResponse.status} - ${errorData.error?.message || 'Unknown error'}`);
+        }
+        
+        const newLabel = await createResponse.json();
+        processedLabelId = newLabel.id;
+        console.log('✅ Created "Processed" label');
+      }
+      
+      // Label all processed messages
+      let labeledCount = 0;
+      let failedCount = 0;
+      
+      for (const bill of bills) {
+        if (bill.messageId) {
+          try {
+            const modifyResponse = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${bill.messageId}/modify`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  addLabelIds: [processedLabelId]
+                })
+              }
+            );
+            
+            if (modifyResponse.ok) {
+              labeledCount++;
+            } else {
+              failedCount++;
+              console.warn(`⚠️ Failed to label message ${bill.messageId}: ${modifyResponse.status}`);
             }
-          );
-          labeledCount++;
-        } catch (error) {
-          console.error(`Failed to label message ${bill.messageId}:`, error);
+          } catch (error) {
+            failedCount++;
+            console.error(`❌ Error labeling message ${bill.messageId}:`, error.message);
+          }
         }
       }
+      
+      console.log(`✅ Labeled ${labeledCount} emails as "Processed" (${failedCount} failed)`);
+      
+    } catch (scopeError) {
+      console.warn('⚠️ Could not label emails - missing gmail.modify scope');
+      console.warn('   Error:', scopeError.message);
+      console.warn('   💡 User needs to sign out and sign in again to grant new permissions');
+      showToast('⚠️ Labeling skipped - re-login to enable this feature', 'warning', 5000);
     }
     
-    console.log(`✅ Labeled ${labeledCount} emails as "Processed"`);
-    
   } catch (error) {
-    console.error('⚠️ Error labeling emails:', error);
+    console.error('⚠️ Error in label process:', error);
     // Don't throw - labeling failure shouldn't stop the sync
   }
 }
@@ -1059,11 +1242,17 @@ function displayBillList(bills) {
     const isFavorite = favoriteStores.has(bill.store);
     const starIcon = isFavorite ? '⭐' : '☆';
     
+    // Determine icon based on bill type
+    let typeIcon = '🍽️'; // Default food icon
+    if (bill.type === 'GrabBike') typeIcon = '🏍️';
+    else if (bill.type === 'GrabCar') typeIcon = '🚗';
+    else if (bill.type?.includes('Transport')) typeIcon = '🚕';
+    
     entry.innerHTML = `
       <div class="bill-info">
         <div>📅 ${bill.date}</div>
         <div class="bill-separator">|</div>
-        <div>🏪 ${bill.store}</div>
+        <div>${typeIcon} ${bill.store}</div>
         <div class="bill-separator">|</div>
         <div>💰 ${bill.total}</div>
       </div>
@@ -1088,7 +1277,6 @@ function displayBillList(bills) {
     listDiv.appendChild(entry);
   });
   
-  // Initialize 3D Tilt Effect
   init3DTilt();
 }
 
@@ -2587,3 +2775,42 @@ async function testFirestore() {
 }
 
 window.testFirestore = testFirestore;
+
+
+// Add this function near other UI functions
+function showReauthPrompt() {
+  const prompt = document.createElement('div');
+  prompt.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(251, 191, 36, 0.95);
+    color: #0a0e27;
+    padding: 20px;
+    border-radius: 12px;
+    max-width: 350px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 1002;
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  prompt.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 10px;">🔐 New Permission Needed</div>
+    <div style="margin-bottom: 15px; font-size: 13px;">
+      To enable automatic email labeling, please sign out and sign in again to grant Gmail modification permission.
+    </div>
+    <button onclick="this.parentElement.remove()" style="
+      background: #0a0e27;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    ">Got it</button>
+  `;
+  
+  document.body.appendChild(prompt);
+  
+  setTimeout(() => prompt.remove(), 10000); // Auto-remove after 10s
+}
