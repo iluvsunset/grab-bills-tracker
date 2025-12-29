@@ -1451,7 +1451,8 @@ function showToast(message, type = 'info', duration = 3000) {
 }
 
 // ============================================
-// NAVIGATION
+// NAVIGATION - FIXED VERSION
+// Replace your initNavigation() function with this
 // ============================================
 
 let isTransitioning = false;
@@ -1461,51 +1462,83 @@ function initNavigation() {
   
   tabs.forEach(tab => {
     tab.addEventListener('click', async () => {
-      if (isTransitioning || tab.classList.contains('active')) return;
+      // Prevent double-clicks and check if already active
+      if (isTransitioning || tab.classList.contains('active')) {
+        console.log('⏭️ Tab change blocked (transitioning or already active)');
+        return;
+      }
       
       const targetTabId = tab.dataset.tab;
+      console.log(`🔄 Switching to tab: ${targetTabId}`);
+      
       const currentTabBtn = document.querySelector('.nav-tab.active');
       const currentTabContent = document.querySelector('.tab-content.active');
       const targetTabContent = document.getElementById(`${targetTabId}Tab`);
       
+      if (!targetTabContent) {
+        console.error(`❌ Tab content not found: ${targetTabId}Tab`);
+        return;
+      }
+      
       isTransitioning = true;
       
-      // 1. Update Buttons immediately
+      // 1. Update active button immediately
       if (currentTabBtn) currentTabBtn.classList.remove('active');
       tab.classList.add('active');
       
-      // 2. Animate Exit
+      // 2. Hide current content
       if (currentTabContent) {
-        currentTabContent.classList.add('closing');
-        
-        // Wait for exit animation
-        await new Promise(resolve => setTimeout(resolve, 400));
-        
-        currentTabContent.classList.remove('active', 'closing');
+        currentTabContent.classList.remove('active');
       }
       
-      // 3. Animate Enter
-      if (targetTabContent) {
-        targetTabContent.classList.add('active');
-        
-        // Load content
-        switch(targetTabId) {
-          case 'analytics':
-            loadAnalytics();
-            break;
-          case 'favorites':
-            loadFavoritesTab();
-            break;
-          case 'budget':
-            loadBudgetTab();
-            break;
-        }
+      // 3. Show new content immediately (no waiting)
+      targetTabContent.classList.add('active');
+      
+      // 4. Load content based on tab
+      switch(targetTabId) {
+        case 'bills':
+          // Bills tab is always loaded
+          console.log('📋 Bills tab active');
+          break;
+        case 'analytics':
+          console.log('📊 Loading analytics...');
+          loadAnalytics();
+          break;
+        case 'favorites':
+          console.log('⭐ Loading favorites...');
+          loadFavoritesTab();
+          break;
+        case 'budget':
+          console.log('💰 Loading budget...');
+          loadBudgetTab();
+          break;
       }
+      
+      // Small delay to allow CSS transitions
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       isTransitioning = false;
+      console.log('✅ Tab switch complete');
     });
   });
+  
+  console.log('✅ Navigation initialized with', tabs.length, 'tabs');
 }
+
+// ============================================
+// DEBUG FUNCTION - Add this to test tabs manually
+// ============================================
+window.switchToTab = function(tabName) {
+  const tab = document.querySelector(`.nav-tab[data-tab="${tabName}"]`);
+  if (tab) {
+    tab.click();
+    console.log(`✅ Switched to ${tabName}`);
+  } else {
+    console.error(`❌ Tab not found: ${tabName}`);
+  }
+};
+
+// Test in console: switchToTab('analytics')
 
 // ============================================
 // BILLS TAB
