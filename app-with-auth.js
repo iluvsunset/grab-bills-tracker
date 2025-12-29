@@ -2719,6 +2719,52 @@ function clearFilters() {
   showToast('✓ Filters cleared');
 }
 
+function createParticles() {
+  const container = document.getElementById('particleContainer');
+  
+  // Exit gracefully if container doesn't exist
+  if (!container) {
+    console.warn('Particle container not found - skipping animation');
+    return;
+  }
+  
+  const particleCount = 30; // Reduced for better performance
+  
+  for (let i = 0; i < particleCount; i++) {
+    const particle = document.createElement('div');
+    particle.className = 'particle';
+    
+    // Random starting position
+    const startX = Math.random() * 100;
+    const startY = Math.random() * 100;
+    
+    // Random animation duration (5-15 seconds)
+    const duration = 5 + Math.random() * 10;
+    
+    // Random delay
+    const delay = Math.random() * 5;
+    
+    // Random size (1-3px)
+    const size = 1 + Math.random() * 2;
+    
+    particle.style.cssText = `
+      position: fixed;
+      width: ${size}px;
+      height: ${size}px;
+      background: rgba(0, 113, 227, 0.3);
+      border-radius: 50%;
+      pointer-events: none;
+      left: ${startX}vw;
+      top: ${startY}vh;
+      animation: float ${duration}s ease-in-out infinite;
+      animation-delay: ${delay}s;
+      opacity: 0;
+    `;
+    
+    container.appendChild(particle);
+  }
+}
+
 function showExportModal() {
   document.getElementById('exportModal').classList.add('active');
 }
