@@ -646,7 +646,8 @@ function extractBillData(body, emailDate, threadId) {
         /Food Order/i,
         /Restaurant/i,
         /Merchant/i,
-        /CHI TIẾT ĐƠN HÀNG/i // Vietnamese food order header
+        /CHI TIẾT ĐƠN HÀNG/i,
+        /Điểm đón khách:/i  // NEW: Vietnamese pickup point
       ],
       transport: [
         /GrabBike/i,
@@ -662,7 +663,8 @@ function extractBillData(body, emailDate, threadId) {
         /Your Trip/i,
         /Chuyến đi của bạn/i,
         /Fare\s+by\s+meter/i,
-        /Giá theo công-tơ-mét/i
+        /Giá theo công-tơ-mét/i,
+        /Grab E-Receipt.*GrabCar/is  // NEW: E-Receipt pattern
       ],
       express: [
         /GrabExpress/i,
@@ -691,7 +693,6 @@ function extractBillData(body, emailDate, threadId) {
     let serviceType = null;
 
     // Detect bill type with priority (food first, then transport, etc.)
-    // Food detection should be FIRST and most specific
     if (billTypePatterns.food.some(pattern => pattern.test(cleanBody))) {
       billType = 'GrabFood';
     } else if (billTypePatterns.transport.some(pattern => pattern.test(cleanBody))) {
@@ -731,21 +732,23 @@ function extractBillData(body, emailDate, threadId) {
     let amountValue = null;
     
     const amountPatterns = [
-      // Vietnamese patterns
-      /(?:BẠN\s+TRẢ|Bạn\s+trả|Bạn\s+thanh\s+toán)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
-      /(?:TỔNG\s+CỘNG|Tổng\s+cộng)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*(?:TỔNG\s+CỘNG|Tổng\s+cộng))/i,
-      /(?:Tổng\s+thanh\s+toán)[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      // Vietnamese patterns - PRIORITY for "Bạn thanh toán"
+      /(?:Bạn\s+thanh\s+toán)[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,  // NEW: Most specific
+      /(?:BẠN\s+TRẢ|Bạn\s+trả)[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
+      /(?:TỔNG\s+CỘNG|Tổng\s+cộng)[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?(?![\s\S]*(?:TỔNG\s+CỘNG|Tổng\s+cộng))/i,
+      /(?:Tổng\s+đã\s+thanh\s+toán)[:\s]*(?:VND\s+)?([\d,.]+)/i,  // NEW: For transport receipts
+      /(?:Tổng\s+thanh\s+toán)[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
       
       // English patterns
       /Total\s+Paid[:\s]+(?:VND\s+)?([\d,.]+)/i,
-      /You\s+paid[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
-      /Total\s+Amount[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
-      /Grand\s+Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
-      /Final\s+Amount[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
-      /Amount\s+Paid[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?/i,
+      /You\s+paid[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
+      /Total\s+Amount[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
+      /Grand\s+Total[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
+      /Final\s+Amount[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
+      /Amount\s+Paid[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?/i,
       
       // Generic patterns (last resort)
-      /Total[:\s]+(₫?\s*[\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Total)/i,
+      /Total[:\s]*₫?\s*([\d,.]+)\s*(?:₫|VND)?(?![\s\S]*Total)/i,
       /(?:VND|₫)\s*([\d,.]+)(?![\s\S]*(?:VND|₫)\s*[\d,.]+)/
     ];
     
@@ -772,6 +775,12 @@ function extractBillData(body, emailDate, threadId) {
     if (billType === 'GrabFood') {
       // Extract restaurant name for food orders
       const storePatterns = [
+        // NEW PATTERN 1: "Điểm đón khách: [STORE NAME]" (from your logs)
+        /Điểm\s+đón\s+khách:\s*([^\n]+?)(?:\s+Hồ\s+sơ|\s+Profile|$)/i,
+        
+        // NEW PATTERN 2: Store name before "Hồ sơ:"
+        /Mã\s+đặt\s+xe:\s+[A-Z0-9\-]+\s+Điểm\s+đón\s+khách:\s*([^\n]+?)\s+Hồ\s+sơ:/i,
+        
         // Vietnamese patterns - PRIORITY ORDER
         /Đặt từ[:\s]+([^]+?)(?:\s+(?:Giao\s+đến|Điểm\s+trả|Hồ\s+sơ|Chi\s+tiết|Người\s+dùng|Mã\s+đơn|Điểm\s+đón))/i,
         /Nhà\s+hàng[:\s]+([A-Za-zÀ-ỹ0-9\s\-&.,()]+?)(?:\s+(?:[A-Z]|Địa\s+chỉ|Address)|\n|$)/i,
@@ -799,7 +808,8 @@ function extractBillData(body, emailDate, threadId) {
           
           // Validate: not a common word, reasonable length
           if (storeName.length > 3 && 
-              !storeName.match(/^(chi\s+tiết|details|profile|hồ\s+sơ|người\s+dùng|user|order|đơn\s+hàng|điểm\s+đón|điểm\s+trả)$/i)) {
+              !storeName.match(/^(chi\s+tiết|details|profile|hồ\s+sơ|người\s+dùng|user|order|đơn\s+hàng|điểm\s+đón|điểm\s+trả|personal)$/i)) {
+            console.log('✅ Store name extracted:', storeName);
             break;
           } else {
             storeName = null;
@@ -807,85 +817,85 @@ function extractBillData(body, emailDate, threadId) {
         }
       }
       
-   } else if (billType.includes('Bike') || billType.includes('Car') || billType === 'Grab Transport') {
-  // Transportation - extract route
-  storeName = serviceType || billType.replace('Grab', '');
-  
-  // IMPROVED: Handle routes with varying spacing
-  const routePatterns = [
-    // Pattern 1: Locations with time, may have unicode chars before
-    /([A-ZÀ-Ý][^\n]{3,50}?)\s*(\d{1,2}:\d{2}\s*[AP]M)\s+([A-ZÀ-Ý][^\n]{3,50}?)\s*(\d{1,2}:\d{2}\s*[AP]M)/,
-    
-    // Pattern 2: With unicode box drawing characters
-    /⋮[\s⋮]*(.{5,60}?)\s*(\d{1,2}:\d{2}\s*[AP]M)\s+(.{5,60}?)\s*(\d{1,2}:\d{2}\s*[AP]M)/,
-    
-    // Pattern 3: Vietnamese pickup/dropoff
-    /(?:Điểm\s+đón|Pick-?up)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/&]+?)\s+\d{1,2}:\d{2}\s*[AP]M[^]*?(?:Điểm\s+trả|Drop-?off)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/&]+?)\s+\d{1,2}:\d{2}\s*[AP]M/i,
-  ];
-  
-  let routeFound = false;
-  
-  for (let i = 0; i < routePatterns.length && !routeFound; i++) {
-    const pattern = routePatterns[i];
-    const routeMatch = cleanBody.match(pattern);
-    
-    if (routeMatch) {
-      console.log(`🔍 Pattern ${i+1} matched:`, routeMatch);
+    } else if (billType.includes('Bike') || billType.includes('Car') || billType === 'Grab Transport') {
+      // Transportation - extract route
+      storeName = serviceType || billType.replace('Grab', '');
       
-      let from, to;
-      
-      // Patterns with 4 capture groups (location, time, location, time)
-      if (routeMatch.length >= 5) {
-        from = routeMatch[1];
-        to = routeMatch[3];
-      } 
-      // Patterns with 2 location groups only
-      else if (routeMatch.length === 3) {
-        from = routeMatch[1];
-        to = routeMatch[2];
-      } else {
-        continue;
-      }
-      
-      // Clean up the locations
-      from = from.trim()
-        .replace(/\s+/g, ' ')
-        .replace(/^[⋮\s\-:]+/, '')
-        .replace(/[⋮\s\-:]+$/, '')
-        .replace(/\s+\d+[,.]?\d*\s*(?:₫|VND)?\s*$/, '') // Remove trailing prices
-        .substring(0, 60);
-      
-      to = to.trim()
-        .replace(/\s+/g, ' ')
-        .replace(/^[⋮\s\-:]+/, '')
-        .replace(/[⋮\s\-:]+$/, '')
-        .replace(/\s+\d+[,.]?\d*\s*(?:₫|VND)?\s*$/, '') // Remove trailing prices
-        .substring(0, 60);
-      
-      console.log('🔍 Cleaned locations:', { from, to });
-      
-      // Validate: must be real locations
-      if (from.length > 2 && to.length > 2 && 
-          !from.match(/^[\d\s\-:⋮•]+$/) && !to.match(/^[\d\s\-:⋮•]+$/) &&
-          from !== to &&
-          !from.match(/^(Your|Trip|km|mins|Breakdown|Fare|Total|Paid)$/i) &&
-          !to.match(/^(Your|Trip|km|mins|Breakdown|Fare|Total|Paid)$/i)) {
+      // Route extraction patterns
+      const routePatterns = [
+        // Pattern 1: Locations with time, may have unicode chars before
+        /([A-ZÀ-Ý][^\n]{3,50}?)\s*(\d{1,2}:\d{2}\s*[AP]M)\s+([A-ZÀ-Ý][^\n]{3,50}?)\s*(\d{1,2}:\d{2}\s*[AP]M)/,
         
-        storeName = `${storeName} (${from} → ${to})`;
-        routeFound = true;
-        console.log('✅ Route extracted:', from, '→', to);
-        break;
-      } else {
-        console.log('❌ Validation failed:', { from, to, fromLen: from.length, toLen: to.length });
+        // Pattern 2: With unicode box drawing characters
+        /⋮[\s⋮]*(.{5,60}?)\s*(\d{1,2}:\d{2}\s*[AP]M)\s+(.{5,60}?)\s*(\d{1,2}:\d{2}\s*[AP]M)/,
+        
+        // Pattern 3: Vietnamese pickup/dropoff
+        /(?:Điểm\s+đón|Pick-?up)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/&]+?)\s+\d{1,2}:\d{2}\s*[AP]M[^]*?(?:Điểm\s+trả|Drop-?off)[^]*?([A-Za-zÀ-ỹ0-9\s,\-\.\/&]+?)\s+\d{1,2}:\d{2}\s*[AP]M/i,
+      ];
+      
+      let routeFound = false;
+      
+      for (let i = 0; i < routePatterns.length && !routeFound; i++) {
+        const pattern = routePatterns[i];
+        const routeMatch = cleanBody.match(pattern);
+        
+        if (routeMatch) {
+          console.log(`🔍 Pattern ${i+1} matched:`, routeMatch);
+          
+          let from, to;
+          
+          // Patterns with 4 capture groups (location, time, location, time)
+          if (routeMatch.length >= 5) {
+            from = routeMatch[1];
+            to = routeMatch[3];
+          } 
+          // Patterns with 2 location groups only
+          else if (routeMatch.length === 3) {
+            from = routeMatch[1];
+            to = routeMatch[2];
+          } else {
+            continue;
+          }
+          
+          // Clean up the locations
+          from = from.trim()
+            .replace(/\s+/g, ' ')
+            .replace(/^[⋮\s\-:]+/, '')
+            .replace(/[⋮\s\-:]+$/, '')
+            .replace(/\s+\d+[,.]?\d*\s*(?:₫|VND)?\s*$/, '') // Remove trailing prices
+            .substring(0, 60);
+          
+          to = to.trim()
+            .replace(/\s+/g, ' ')
+            .replace(/^[⋮\s\-:]+/, '')
+            .replace(/[⋮\s\-:]+$/, '')
+            .replace(/\s+\d+[,.]?\d*\s*(?:₫|VND)?\s*$/, '') // Remove trailing prices
+            .substring(0, 60);
+          
+          console.log('🔍 Cleaned locations:', { from, to });
+          
+          // Validate: must be real locations
+          if (from.length > 2 && to.length > 2 && 
+              !from.match(/^[\d\s\-:⋮•]+$/) && !to.match(/^[\d\s\-:⋮•]+$/) &&
+              from !== to &&
+              !from.match(/^(Your|Trip|km|mins|Breakdown|Fare|Total|Paid)$/i) &&
+              !to.match(/^(Your|Trip|km|mins|Breakdown|Fare|Total|Paid)$/i)) {
+            
+            storeName = `${storeName} (${from} → ${to})`;
+            routeFound = true;
+            console.log('✅ Route extracted:', from, '→', to);
+            break;
+          } else {
+            console.log('❌ Validation failed:', { from, to, fromLen: from.length, toLen: to.length });
+          }
+        }
       }
-    }
-  }
-  
-  // If no route found, log for debugging
-  if (!routeFound) {
-    console.log('⚠️ No route extracted. Showing first 200 chars of body:');
-    console.log(cleanBody.substring(0, 200));
-  }
+      
+      // If no route found, log for debugging
+      if (!routeFound) {
+        console.log('⚠️ No route extracted. Showing first 200 chars of body:');
+        console.log(cleanBody.substring(0, 200));
+      }
       
     } else if (billType === 'GrabExpress') {
       storeName = 'GrabExpress';
@@ -966,14 +976,17 @@ function extractBillData(body, emailDate, threadId) {
     let itemsDetails = null;
     
     if (billType === 'GrabFood') {
-      // Extract food items
+      // Extract food items - IMPROVED PATTERNS
       const itemsPatterns = [
+        // NEW PATTERN 1: "Chi tiết Số lượng: [ITEMS]" (from your logs)
+        /Chi\s+tiết\s+Số\s+lượng:\s*((?:\d+x\s+[^₫]+?₫\s*[\d,]+\s*)+?)(?:Tổng\s+tạm\s+tính|Subtotal)/is,
+        
         // Vietnamese
-        /Số\s+lượng:(.*?)(?:Tổng\s+tạm\s+tính|Subtotal|Cước\s+phí|Delivery\s+fee|Phí\s+dịch\s+vụ|Service\s+fee)/is,
+        /Số\s+lượng:\s*(.*?)(?:Tổng\s+tạm\s+tính|Subtotal|Cước\s+phí|Delivery\s+fee|Phí\s+dịch\s+vụ|Service\s+fee)/is,
         /Chi\s+tiết[^]*?((?:\d+x\s+[^₫\d]+?(?:₫|VND)?\s*\d+[,.]?\d*\s*)+)(?:Tổng|Cước)/is,
         
         // English
-        /(?:Quantity|Items|Order\s+details):(.*?)(?:Subtotal|Delivery\s+fee|Service\s+fee|Total)/is,
+        /(?:Quantity|Items|Order\s+details):\s*(.*?)(?:Subtotal|Delivery\s+fee|Service\s+fee|Total)/is,
         
         // Generic item list
         /((?:\d+x\s+.+?(?:₫|VND)?\s*[\d,]+\s*){1,})/is
@@ -984,8 +997,8 @@ function extractBillData(body, emailDate, threadId) {
         if (match) {
           const itemsText = match[1];
           
-          // Extract individual items
-          let foodMatches = itemsText.match(/(\d+x\s+.+?)(?=\s*₫?\s*[\d,]+(?:\s*₫|VND)?|\d+x\s+|$)/g);
+          // Extract individual items - IMPROVED REGEX
+          let foodMatches = itemsText.match(/(\d+x\s+[^₫\n]+?)(?=\s*₫?\s*[\d,]+(?:\s*(?:₫|VND))?(?:\s+\d+x|\s+Tổng|\s+Cước|\s+Phí|$))/gi);
           
           if (foodMatches && foodMatches.length > 0) {
             foodMatches = foodMatches.map(item => {
@@ -998,6 +1011,7 @@ function extractBillData(body, emailDate, threadId) {
             
             if (foodMatches.length > 0) {
               itemsDetails = foodMatches.slice(0, 20).join(', ');
+              console.log('✅ Items extracted:', itemsDetails);
               break;
             }
           }
@@ -1006,7 +1020,7 @@ function extractBillData(body, emailDate, threadId) {
       
       // Fallback: look for food keywords
       if (!itemsDetails) {
-        const foodKeywords = /(?:cơm|phở|bún|mì|bánh|canh|soup|rice|noodle|chicken|beef|pork|fish|vegetable|salad|pizza|burger|coffee|trà|tea)[^₫\d]{1,60}/gi;
+        const foodKeywords = /(?:cơm|phở|bún|mì|bánh|canh|soup|rice|noodle|chicken|beef|pork|fish|vegetable|salad|pizza|burger|coffee|trà|tea|gà|set)[^₫\d]{1,60}/gi;
         const foodWords = cleanBody.match(foodKeywords);
         if (foodWords && foodWords.length > 0) {
           itemsDetails = foodWords.slice(0, 5).map(w => w.trim()).filter(w => w.length > 2).join(', ');
@@ -1048,6 +1062,7 @@ function extractBillData(body, emailDate, threadId) {
       // Driver rating/compliment
       const complimentMatches = [
         /Compliments?\s+for\s+driver[:\s]+([A-Za-z\s]+?)(?:\s+Breakdown|\s+Chi\s+tiết|$)/i,
+        /Lời\s+khen\s+dành\s+cho\s+bác\s+tài\s+([^\n]{5,40})/i,  // NEW: Vietnamese compliment
         /Driver\s+rating[:\s]+([\d.]+)/i,
         /Đánh\s+giá\s+tài\s+xế[:\s]+([\d.]+)/i
       ];
@@ -1173,7 +1188,12 @@ function extractBillData(body, emailDate, threadId) {
     
   } catch (error) {
     console.error('❌ Error extracting bill data:', error);
-    return { valid: false };
+    console.error('   Error message:', error.message);
+    console.error('   Stack trace:', error.stack);
+    return { 
+      valid: false,
+      error: error.message 
+    };
   }
 }
 
