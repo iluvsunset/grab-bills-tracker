@@ -1363,30 +1363,56 @@ async function manualSync() {
 // ============================================
 
 function showLoginScreen() {
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('mainApp').style.display = 'none';
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+  
+  if (loginScreen) loginScreen.style.display = 'flex';
+  if (mainApp) mainApp.style.display = 'none';
+  
   showLoading(false);
+  console.log('✅ Login screen shown');
 }
 
 function showMainApp() {
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('mainApp').style.display = 'block';
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+  
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (mainApp) mainApp.style.display = 'block';
+  
   showLoading(false);
   
   if (currentUser) {
     document.getElementById('userEmail').textContent = currentUser.email;
   }
   
+  console.log('✅ Main app shown');
+  
   // Add event listener for sync button
-  document.getElementById('syncGmailBtn').addEventListener('click', manualSync);
+  const syncBtn = document.getElementById('syncGmailBtn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', manualSync);
+  }
 }
 
 function showLoading(show) {
   const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) {
+    console.error('Loading overlay not found!');
+    return;
+  }
+  
   if (show) {
+    overlay.style.display = 'flex';
     overlay.classList.add('active');
+    console.log('✅ Loading overlay shown');
   } else {
     overlay.classList.remove('active');
+    // Give time for fade-out animation, then hide
+    setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 300);
+    console.log('✅ Loading overlay hidden');
   }
 }
 
